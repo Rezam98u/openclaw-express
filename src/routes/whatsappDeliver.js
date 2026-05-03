@@ -8,6 +8,7 @@ import {
   isValidE164,
   normalizeE164,
 } from "../utils/whatsappSession.js";
+import { createExcelSession, getExcelSession } from "../utils/excelSessionCache.js";
 
 export const whatsappDeliverRouter = Router();
 
@@ -89,6 +90,9 @@ whatsappDeliverRouter.post(
       systemPromptFromForm = req.body.extraSystemPrompt.trim();
     }
 
+    // NEW: Support sessionId for reusing uploaded Excel
+    const excelSessionId = req.body?.excelSessionId;
+
     if (typeof task !== "string" || !task.trim()) {
       return res
         .status(400)
@@ -101,15 +105,44 @@ whatsappDeliverRouter.post(
       });
     }
 
-    const file = req.file;
-    if (!file?.buffer) {
-      return res.status(400).json({ error: "Spreadsheet file field 'file' is required." });
+    let excelText = "";
+    let contextMeta = null;
+
+    // NEW: Check if reusing Excel session OR uploading new file
+    if (excelSessionId) {
+      // Reuse cached Excel data
+      const sessionData = getExcelSession(excelSessionId);
+      if (!sessionData) {
+        return res.status(404).json({
+          error: "Excel session not found or expired.",
+          excelSessionId,
+        });
+      }
+      excelText = sessionData.text;
+      contextMeta = sessionData.meta;
+      console.log(`[whatsapp] Using cached Excel session: ${excelSessionId.slice(0, 8)}...`);
+    } else {
+      // Upload new file (original behavior)
+      const file = req.file;
+      if (!file?.buffer) {
+        return res.status(400).json({
+          error: "Either 'file' (new upload) or 'excelSessionId' (cached) is required.",
+        });
+      }
+
+      const { text: parsedText, meta: parsedMeta } = bufferToExcelContext(
+        file.buffer,
+        { sheetName }
+      );
+      excelText = parsedText;
+      contextMeta = parsedMeta;
+
+      // Optional: Auto-create a session for this upload (client can reuse it)
+      // Comment out if you don't want auto-sessions
+      const sessionId = createExcelSession(file.buffer, { sheetName });
+      console.log(`[whatsapp] Created Excel session: ${sessionId.slice(0, 8)}... (can be reused)`);
     }
 
-    const { text: excelText, meta: contextMeta } = bufferToExcelContext(
-      file.buffer,
-      { sheetName }
-    );
     const extraSystemPrompt = buildExtraSystemPrompt(excelText, systemPromptFromForm);
     const message = task.trim();
     const sessionKey = buildWhatsAppDmSessionKey(agentId, normalizeE164(to));
