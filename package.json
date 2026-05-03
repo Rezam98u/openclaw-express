@@ -1,0 +1,21 @@
+{
+  "name": "openclaw-express",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Express server that talks to a self-hosted OpenClaw gateway using Groq as the LLM.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node --env-file=.env src/server.js",
+    "dev": "node --env-file=.env --watch src/server.js"
+  },
+  "dependencies": {
+    "express": "^5.2.1",
+    "multer": "^2.1.1",
+    "openclaw-node": "^0.7.0",
+    "xlsx": "^0.18.5"
+  }
+}
