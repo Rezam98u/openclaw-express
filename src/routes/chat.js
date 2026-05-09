@@ -9,13 +9,16 @@ chatRouter.post("/ask", async (req, res) => {
     return res.status(400).json({ error: "Field 'question' (string) is required." });
   }
 
+  // FIX: Add default agentId if missing
+  const options = { sessionKey, agentId: agentId || "main" };
+
   try {
     const client = await getClient();
-    const answer = await client.chatSync(question, { sessionKey, agentId });
+    const answer = await client.chatSync(question, options);
     res.json({ answer });
   } catch (err) {
     console.error("[chat:ask]", err);
-    res.status(502).json({ error: "Failed to reach OpenClaw gateway." });
+    res.status(502).json({ error: err.message });
   }
 });
 
@@ -24,6 +27,8 @@ chatRouter.post("/stream", async (req, res) => {
   if (typeof question !== "string" || !question.trim()) {
     return res.status(400).json({ error: "Field 'question' (string) is required." });
   }
+
+  const options = { sessionKey, agentId: agentId || "main" };
 
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
@@ -36,13 +41,11 @@ chatRouter.post("/stream", async (req, res) => {
   };
 
   let cancelled = false;
-  req.on("close", () => {
-    cancelled = true;
-  });
+  req.on("close", () => { cancelled = true; });
 
   try {
     const client = await getClient();
-    const stream = client.chat(question, { sessionKey, agentId });
+    const stream = client.chat(question, options);
 
     for await (const chunk of stream) {
       if (cancelled) break;
