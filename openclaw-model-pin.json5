@@ -1,0 +1,16 @@
+// Pin non-reasoning chat models only. Apply with:
+//   openclaw config patch --file openclaw-model-pin.json5 --dry-run
+//   openclaw config patch --file openclaw-model-pin.json5
+//
+// Groq Llama 3.3 is primary; Gemini Flash is fallback (no DeepSeek in chain).
+
+{
+  agents: {
+    defaults: {
+      model: {
+        primary: "groq/llama-3.3-70b-versatile",
+        fallbacks: ["google/gemini-2.5-flash"],
+      },
+    },
+  },
+}

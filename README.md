@@ -70,16 +70,27 @@ The **gateway container** holds the WhatsApp Web session. You only need to pair 
 | On your **host** (this repo, `npm start`) | `ws://127.0.0.1:18789` — gateway port **published** in Compose |
 | In **another Docker container** (same machine) | `ws://host.docker.internal:18789` (Docker Desktop), or `ws://<gateway-service-hostname>:18789` on a **shared Compose network** |
 
-Optional — pin the default model to a Groq one. Edit `~/.openclaw/config.json5` (created on first run):
+Optional — pin models on the **gateway** (not in Express). Active file: `openclaw config file` (often `~/.openclaw/openclaw.json` on Windows).
+
+Use a **non-reasoning** primary and fallbacks (e.g. Groq Llama → Gemini Flash). Avoid putting reasoning-style models in the fallback chain or you will see meta commentary in chat replies.
 
 ```json5
 {
   agents: {
     defaults: {
-      model: { primary: "groq/llama-3.3-70b-versatile" },
+      model: {
+        primary: "groq/llama-3.3-70b-versatile",
+        fallbacks: ["google/gemini-2.5-flash"],
+      },
     },
   },
 }
+```
+
+Or apply the checked-in patch from this folder (restart the gateway afterward):
+
+```bash
+openclaw config patch --file openclaw-model-pin.json5
 ```
 
 If you ever need a fresh dashboard URL:

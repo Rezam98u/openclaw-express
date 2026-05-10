@@ -1,0 +1,106 @@
+Next time — to clear ONLY sessions
+Use this instead (sessions only, config preserved):
+
+openclaw sessions cleanup --enforce --all-agents
+
+
+Or just send /new or /reset in the chat — that clears session history without touching config at all.
+
+═══════════════════════════════════════════════════════
+ FIX A: Non-reasoning models only (gateway)
+═══════════════════════════════════════════════════════
+
+# Primary should stay Groq Llama; remove DeepSeek from fallbacks if replies
+# look like chain-of-thought / meta commentary.
+#
+# Option 1 — patch file in this repo (from openclaw-express folder):
+#   openclaw config patch --file openclaw-model-pin.json5
+# If dry-run fails on unrelated schema noise, edit ~/.openclaw/openclaw.json by hand:
+#   agents.defaults.model.fallbacks = [ "google/gemini-2.5-flash" ]
+#
+# Option 2 — Groq only (fail if Groq is down; no silent DeepSeek):
+#   openclaw config set agents.defaults.model.fallbacks '[]' --strict-json
+#
+# After any change: restart the OpenClaw gateway process.
+
+═══════════════════════════════════════════════════════
+ TEST: Excel → AI → WhatsApp delivery
+═══════════════════════════════════════════════════════
+
+# Prerequisites: two terminals must be running:
+#   Terminal 1: openclaw gateway
+#   Terminal 2 (from openclaw-express): npm run dev
+
+# Send Book1.xlsx to the AI and deliver the answer to a WhatsApp number:
+
+curl -X POST http://localhost:8080/api/whatsapp/ask-deliver `
+  -F "file=@E:\Agents\OpenClaw\openclaw-express\Book1.xlsx" `
+  -F "task=What is the total sales in the spreadsheet?" `
+  -F "to=+98XXXXXXXXXX"
+
+# Replace +98XXXXXXXXXX with the real WhatsApp number (E.164 format: +countrycode + number, no spaces).
+# Example Iran number: +989121234567
+
+# To force re-read the file on next call (if the sheet changed):
+#   add:  -F "forceReload=true"
+
+# To read a specific sheet by name:
+#   add:  -F "sheetName=Sheet2"
+
+═══════════════════════════════════════════════════════
+ TEST: Simple chat (no Excel, no WhatsApp delivery)
+═══════════════════════════════════════════════════════
+
+(Invoke-WebRequest -Uri "http://localhost:8080/api/chat/ask" -Method POST -ContentType "application/json" -Body '{"question":"say hi"}' -UseBasicParsing).Content
+
+═══════════════════════════════════════════════════════
+ SAVE REQUEST + RESPONSE TO FILE
+═══════════════════════════════════════════════════════
+
+$body = '{"question":"say hi"}'
+$uri  = "http://localhost:8080/api/chat/ask"
+"=== REQUEST ===" | Out-File -FilePath "request-log.txt" -Encoding utf8
+"URI: $uri"       | Out-File -FilePath "request-log.txt" -Append -Encoding utf8
+"BODY: $body"     | Out-File -FilePath "request-log.txt" -Append -Encoding utf8
+"=== RESPONSE ===" | Out-File -FilePath "request-log.txt" -Append -Encoding utf8
+$response = (Invoke-WebRequest -Uri $uri -Method POST -ContentType "application/json" -Body $body -UseBasicParsing).Content
+$response | Out-File -FilePath "request-log.txt" -Append -Encoding utf8
+Write-Host "Response: $response"
+Write-Host "Saved to request-log.txt"
+
+═══════════════════════════════════════════════════════
+ VIEW GATEWAY LOGS (last 50 lines)
+═══════════════════════════════════════════════════════
+
+Get-Content "C:\Users\reza1\AppData\Local\Temp\openclaw\openclaw-2026-05-10.log" -Tail 50
+
+═══════════════════════════════════════════════════════
+ RESTORE CONFIG FROM BACKUP
+═══════════════════════════════════════════════════════
+
+Copy-Item "C:\Users\reza1\.openclaw\openclaw.json.last-good" "C:\Users\reza1\.openclaw\openclaw.json"
+
+═══════════════════════════════════════════════════════
+ GEMINI (Google) API KEY
+═══════════════════════════════════════════════════════
+
+# 1. Create a key: https://aistudio.google.com/apikey
+
+# 2. Put it in BOTH files (same value):
+#    C:\Users\reza1\.openclaw\.env          -> GEMINI_API_KEY=AIza...
+#    E:\Agents\OpenClaw\openclaw-express\.env  -> GEMINI_API_KEY=AIza...
+
+# 3. Or set only in gateway config (overrides/mirrors .env for some setups):
+#    openclaw config set env.vars.GEMINI_API_KEY AIza...your_key...
+
+# 4. Restart the gateway: openclaw gateway
+
+# Fallback chain is now: Groq -> DeepSeek -> Google gemini-2.5-flash
+# Verify: openclaw models list --provider google
+
+
+
+
+
+
+

@@ -2,6 +2,7 @@ import express from "express";
 import { chatRouter } from "./routes/chat.js";
 import { whatsappDeliverRouter } from "./routes/whatsappDeliver.js";
 import { getClient, disconnectClient } from "./openclawClient.js";
+import { loadPersona } from "./utils/persona.js";
 
 const port = Number(process.env.PORT) || 8080;
 
@@ -21,6 +22,7 @@ app.use("/api/chat", chatRouter);
 app.use("/api/whatsapp", whatsappDeliverRouter);
 
 const start = async () => {
+  loadPersona();
   try {
     await getClient();
     console.log("[startup] Connected to OpenClaw gateway.");
