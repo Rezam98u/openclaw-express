@@ -3,6 +3,7 @@ import { chatRouter } from "./routes/chat.js";
 import { whatsappDeliverRouter } from "./routes/whatsappDeliver.js";
 import { getClient, disconnectClient } from "./openclawClient.js";
 import { loadPersona } from "./utils/persona.js";
+import { startWhatsAppAutoReply } from "./listeners/whatsappAutoReply.js";
 
 const port = Number(process.env.PORT) || 8080;
 
@@ -24,8 +25,9 @@ app.use("/api/whatsapp", whatsappDeliverRouter);
 const start = async () => {
   loadPersona();
   try {
-    await getClient();
+    const client = await getClient();
     console.log("[startup] Connected to OpenClaw gateway.");
+    startWhatsAppAutoReply(client);
   } catch (err) {
     console.warn(`[startup] Gateway not reachable yet: ${err.message}`);
     console.warn("[startup] Server will start anyway; requests will retry on demand.");
