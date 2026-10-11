@@ -26,7 +26,7 @@ const upload = multer({
 });
 
 // One-shot flow:
-//   - sessionKey uses the WhatsApp DM convention (agent:<id>:whatsapp:dm:<e164>)
+//   - sessionKey uses the WhatsApp DM convention (agent:<id>:whatsapp:direct:<e164>)
 //     so the gateway can route delivery to the right number.
 //   - session is reset before every call -> no history accumulates between calls.
 //   - spreadsheet is inlined into the single message -> never lives in history.

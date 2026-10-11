@@ -8,7 +8,10 @@ process.env.OPENCLAW_GATEWAY_URL = "ws://127.0.0.1:1";
 process.env.OPENCLAW_GATEWAY_TOKEN = "test-token";
 
 const { chatRouter } = await import("../src/routes/chat.js");
+process.env.AUTOPILOT_NUMBERS = "+491511234567, +989121234567";
+
 const { whatsappDeliverRouter } = await import("../src/routes/whatsappDeliver.js");
+const { autopilotRouter } = await import("../src/routes/autopilot.js");
 const { disconnectClient } = await import("../src/openclawClient.js");
 
 let server;
@@ -19,6 +22,7 @@ before(async () => {
   app.use(express.json());
   app.use("/api/chat", chatRouter);
   app.use("/api/whatsapp", whatsappDeliverRouter);
+  app.use("/api/autopilot", autopilotRouter);
   await new Promise((resolve) => {
     server = app.listen(0, "127.0.0.1", resolve);
   });
@@ -87,6 +91,28 @@ test("POST /api/whatsapp/ask-deliver validates task, number and file", async () 
 
   r = await send({ task: "sum it", to: "+491511234567" });
   assert.equal(r.status, 502);
-  assert.equal(r.body.sessionKey, "agent:main:whatsapp:dm:+491511234567");
+  assert.equal(r.body.sessionKey, "agent:main:whatsapp:direct:+491511234567");
   assert.equal(r.body.contextMeta.rowCount, 1);
+});
+
+test("POST /api/autopilot/opener validates the number and context", async () => {
+  let res = await postJson("/api/autopilot/opener", { to: "0151" });
+  assert.equal(res.status, 400);
+  assert.match((await res.json()).error, /E\.164/);
+
+  res = await postJson("/api/autopilot/opener", { to: "+491511234567", context: 42 });
+  assert.equal(res.status, 400);
+  assert.match((await res.json()).error, /context/);
+});
+
+test("POST /api/autopilot/opener refuses numbers outside AUTOPILOT_NUMBERS", async () => {
+  const res = await postJson("/api/autopilot/opener", { to: "+15551234567" });
+  assert.equal(res.status, 403);
+  assert.match((await res.json()).error, /AUTOPILOT_NUMBERS/);
+});
+
+test("POST /api/autopilot/opener returns 502 when the gateway is unreachable", async () => {
+  const res = await postJson("/api/autopilot/opener", { to: "+989121234567", send: false });
+  assert.equal(res.status, 502);
+  assert.ok((await res.json()).error);
 });

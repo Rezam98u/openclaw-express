@@ -180,6 +180,48 @@ event: text
 data: {"type":"text","text":"..."}
 ```
 
+### `POST /api/autopilot/opener`
+
+**Autopilot:** the AI texts a match on WhatsApp **as you**. This route sends the first message; after that the **gateway** answers each of the match's replies on its own, in the persona, keeping one conversation per match.
+
+How it works:
+
+1. Drafts the opener in a throwaway session (persona from `persona.txt`, no delivery).
+2. Cleans it with the same sanitizer as `/api/chat/ask`, so leaked planning text never reaches the match.
+3. Resets the match's session `agent:main:whatsapp:direct:<to>` (a new conversation), then sends **exactly that text** through the gateway's `send` RPC. The text is mirrored into the match's transcript, so the gateway's later replies know what was said.
+
+**Request:** JSON
+
+| Field | Required | Description |
+| --- | --- | --- |
+| `to` | Yes | Match number in **E.164** form; must be listed in `AUTOPILOT_NUMBERS` (else 403) |
+| `context` | No | What you know about the match (profile notes, photos, interests) |
+| `send` | No | `false` = preview only: draft and return the opener without sending anything |
+| `agentId` | No | Gateway agent id (default `main`) |
+
+```bash
+# Preview (nothing is sent)
+curl -s -X POST http://localhost:8080/api/autopilot/opener \
+  -H "Content-Type: application/json" \
+  -d '{"to":"+15551234567","context":"Likes hiking and bad puns","send":false}'
+
+# Send it
+curl -s -X POST http://localhost:8080/api/autopilot/opener \
+  -H "Content-Type: application/json" \
+  -d '{"to":"+15551234567","context":"Likes hiking and bad puns"}'
+```
+
+Response: `{ "message": "...", "to": "+15551234567", "sessionKey": "agent:main:whatsapp:direct:+15551234567", "sent": true, "result": { ... } }`. `502` if the agent run or the send fails.
+
+**Gateway setup (once, and after every change to `persona.txt` or `AUTOPILOT_NUMBERS`):**
+
+```bash
+npm run whatsapp:sync:dry   # validate
+npm run whatsapp:sync       # apply to the running gateway
+```
+
+This sets `session.dmScope: "per-channel-peer"` (one session per match), `channels.whatsapp.dmPolicy: "allowlist"` with `allowFrom` = `AUTOPILOT_NUMBERS` (only listed matches are answered; nobody gets pairing codes), and `channels.whatsapp.direct["*"].systemPrompt` = `persona.txt`.
+
 ### `POST /api/whatsapp/ask-deliver`
 
 Runs **one** agent turn with spreadsheet data as context, then **delivers** the assistant reply to a **WhatsApp DM** through the gateway (same Groq path as `/api/chat/*`).
@@ -229,7 +271,7 @@ curl -X POST http://localhost:8080/api/whatsapp/ask-deliver \
 ```json
 {
   "answer": "...",
-  "sessionKey": "agent:main:whatsapp:dm:+15551234567",
+  "sessionKey": "agent:main:whatsapp:direct:+15551234567",
   "deliveryRequested": true,
   "delivered": true,
   "contextMeta": {
@@ -260,6 +302,7 @@ openclaw-express/
 │   ├── openclawClient.js      # Singleton OpenClaw gateway client
 │   ├── routes/
 │   │   ├── chat.js            # POST /api/chat/ask + /api/chat/stream
+│   │   ├── autopilot.js       # POST /api/autopilot/opener
 │   │   └── whatsappDeliver.js # POST /api/whatsapp/ask-deliver
 │   └── utils/
 │       ├── agentStreamCollect.js # consume agent stream → answer + streamError

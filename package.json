@@ -11,7 +11,9 @@
   "scripts": {
     "start": "node --env-file=.env src/server.js",
     "dev": "node --env-file=.env --watch src/server.js",
-    "test": "node --no-warnings --test"
+    "test": "node --no-warnings --test",
+    "whatsapp:sync:dry": "node --env-file=.env scripts/whatsapp-autopilot-patch.js | docker compose -f ../openclaw-gateway-docker/docker-compose.yml exec -T openclaw-gateway node dist/index.js config patch --stdin --replace-path channels.whatsapp.direct --dry-run",
+    "whatsapp:sync": "node --env-file=.env scripts/whatsapp-autopilot-patch.js | docker compose -f ../openclaw-gateway-docker/docker-compose.yml exec -T openclaw-gateway node dist/index.js config patch --stdin --replace-path channels.whatsapp.direct"
   },
   "dependencies": {
     "express": "^5.2.1",

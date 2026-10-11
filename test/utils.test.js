@@ -6,6 +6,7 @@ import {
   buildWhatsAppDmSessionKey,
   isValidE164,
   normalizeE164,
+  parseE164List,
 } from "../src/utils/whatsappSession.js";
 import { bufferToExcelContext } from "../src/utils/excelContext.js";
 import { collectAgentTextStream } from "../src/utils/agentStreamCollect.js";
@@ -39,8 +40,13 @@ test("whatsappSession: E.164 validation and session keys", () => {
     assert.equal(isValidE164(bad), false, `expected invalid: ${bad}`);
   }
   assert.equal(normalizeE164(" +491511234567 "), "+491511234567");
-  assert.equal(buildWhatsAppDmSessionKey("main", "+491511234567"), "agent:main:whatsapp:dm:+491511234567");
-  assert.equal(buildWhatsAppDmSessionKey("  ", "+491511234567"), "agent:main:whatsapp:dm:+491511234567");
+  assert.equal(buildWhatsAppDmSessionKey("main", "+491511234567"), "agent:main:whatsapp:direct:+491511234567");
+  assert.equal(buildWhatsAppDmSessionKey("  ", "+491511234567"), "agent:main:whatsapp:direct:+491511234567");
+});
+
+test("whatsappSession: parseE164List keeps valid numbers only", () => {
+  assert.deepEqual(parseE164List("+491511234567, +989121234567 nope,,0151"), ["+491511234567", "+989121234567"]);
+  assert.deepEqual(parseE164List(undefined), []);
 });
 
 test("excelContext: converts the first sheet to TSV with metadata", () => {
