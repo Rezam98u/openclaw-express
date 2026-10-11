@@ -9,13 +9,6 @@ import {
 } from "../src/utils/whatsappSession.js";
 import { bufferToExcelContext } from "../src/utils/excelContext.js";
 import { collectAgentTextStream } from "../src/utils/agentStreamCollect.js";
-import {
-  clearAllExcelSessions,
-  createExcelSession,
-  deleteExcelSession,
-  getExcelSession,
-  listExcelSessions,
-} from "../src/utils/excelSessionCache.js";
 
 test("sanitizeChatAnswer: non-strings and blanks", () => {
   assert.equal(sanitizeChatAnswer(undefined), "");
@@ -85,19 +78,4 @@ test("collectAgentTextStream: joins text and reports errors", async () => {
     { answer: "partial", streamError: "quota" }
   );
   assert.equal((await collectAgentTextStream(stream([{ type: "error" }]))).streamError, "Agent stream reported an error.");
-});
-
-test("excelSessionCache: create, get, list, delete", () => {
-  clearAllExcelSessions();
-  const id = createExcelSession(makeWorkbook({ S: [["a", "b"]] }));
-  assert.equal(getExcelSession(id).text, "a\tb");
-
-  const [entry] = listExcelSessions();
-  assert.equal(entry.sessionId, id);
-  assert.equal(entry.sheetName, "S");
-  assert.ok(entry.lastAccessedAt);
-
-  assert.equal(deleteExcelSession(id), true);
-  assert.equal(deleteExcelSession(id), false);
-  assert.equal(getExcelSession(id), null);
 });

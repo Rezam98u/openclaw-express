@@ -9,7 +9,6 @@ process.env.OPENCLAW_GATEWAY_TOKEN = "test-token";
 
 const { chatRouter } = await import("../src/routes/chat.js");
 const { whatsappDeliverRouter } = await import("../src/routes/whatsappDeliver.js");
-const { excelSessionRouter } = await import("../src/routes/excelSession.js");
 const { disconnectClient } = await import("../src/openclawClient.js");
 
 let server;
@@ -20,7 +19,6 @@ before(async () => {
   app.use(express.json());
   app.use("/api/chat", chatRouter);
   app.use("/api/whatsapp", whatsappDeliverRouter);
-  app.use("/api/excel-session", excelSessionRouter);
   await new Promise((resolve) => {
     server = app.listen(0, "127.0.0.1", resolve);
   });
@@ -91,36 +89,4 @@ test("POST /api/whatsapp/ask-deliver validates task, number and file", async () 
   assert.equal(r.status, 502);
   assert.equal(r.body.sessionKey, "agent:main:whatsapp:dm:+491511234567");
   assert.equal(r.body.contextMeta.rowCount, 1);
-});
-
-test("excel-session: upload, fetch, list, delete", async () => {
-  const form = new FormData();
-  form.append("file", xlsxBlob([["name", "score"], ["ana", 9]]), "scores.xlsx");
-  let res = await fetch(base + "/api/excel-session/upload", { method: "POST", body: form });
-  assert.equal(res.status, 200);
-  const { sessionId, excelData } = await res.json();
-  assert.equal(excelData.text, "name\tscore\nana\t9");
-
-  res = await fetch(`${base}/api/excel-session/${sessionId}`);
-  assert.equal((await res.json()).excelData.meta.rowCount, 2);
-
-  res = await fetch(`${base}/api/excel-session`);
-  assert.ok((await res.json()).some((s) => s.sessionId === sessionId));
-
-  res = await fetch(`${base}/api/excel-session/${sessionId}`, { method: "DELETE" });
-  assert.deepEqual(await res.json(), { deleted: true, sessionId });
-
-  res = await fetch(`${base}/api/excel-session/${sessionId}`);
-  assert.equal(res.status, 404);
-});
-
-test("excel-session: rejects missing files and non-spreadsheets", async () => {
-  let res = await fetch(base + "/api/excel-session/upload", { method: "POST", body: new FormData() });
-  assert.equal(res.status, 400);
-
-  const form = new FormData();
-  form.append("file", new Blob(["hello"], { type: "text/plain" }), "notes.txt");
-  res = await fetch(base + "/api/excel-session/upload", { method: "POST", body: form });
-  assert.equal(res.status, 400);
-  assert.match((await res.json()).error, /Invalid file type/);
 });

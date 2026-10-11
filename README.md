@@ -11,55 +11,65 @@ Express server that talks to a **self-hosted OpenClaw gateway** (running in Dock
 
 ## Prerequisites
 
-- Node.js **22+**
-- Docker Desktop / Docker Engine + Docker Compose v2
+- macOS
+- Node.js **22+** (e.g. `brew install node`)
+- Docker Desktop for Mac (includes Docker Compose v2)
 - A Groq API key (get one at <https://console.groq.com/keys>)
 
 ## 1. Run the OpenClaw gateway in Docker
 
-In the sibling folder `E:\Agents\openclaw-gateway`:
+In the sibling folder `../openclaw-gateway-docker` (it uses the official `ghcr.io/openclaw/openclaw` image):
 
 ```bash
-git clone https://github.com/openclaw-foundation/openclaw.git .
-cp .env.example .env
+cd ../openclaw-gateway-docker
+cp env.example .env
 ```
 
-Edit `.env`:
+Edit `.env` (use absolute paths; Compose does not expand `~` here):
 
 ```env
-LLM_PROVIDER=groq
-GROQ_API_KEY=gsk_your_key_here
+OPENCLAW_CONFIG_DIR=/Users/<you>/.openclaw
+OPENCLAW_WORKSPACE_DIR=/Users/<you>/.openclaw/workspace
 OPENCLAW_GATEWAY_TOKEN=pick-a-long-random-string
+GROQ_API_KEY=gsk_your_key_here
 ```
 
-Then bring it up:
+Then bring it up and wait until `docker compose ps` reports it `healthy`:
 
 ```bash
-docker compose up -d
+./start-gateway.sh            # same as: docker compose up -d openclaw-gateway
 docker compose logs -f openclaw-gateway
 ```
+
+There is no native `openclaw` CLI on this setup. Run CLI commands inside the running container:
+
+```bash
+docker compose exec openclaw-gateway node dist/index.js <openclaw-args>
+```
+
+Don't use `docker compose run --rm openclaw-cli ...` while the gateway is up: it fails with `GatewayLockNamespaceError`.
 
 ### Docker: WhatsApp (link your own number)
 
 The **gateway container** holds the WhatsApp Web session. You only need to pair once (until you log out or auth expires).
 
-1. Install / enable the WhatsApp plugin if your image does not already include it (see OpenClaw onboarding or `openclaw plugins install @openclaw/whatsapp` inside the **CLI** image).
-2. Run login from a **one-off CLI container** (replace `openclaw-cli` with the CLI service name from your Compose file — check `docker compose config --services`):
+1. Install / enable the WhatsApp plugin if your image does not already include it (see OpenClaw onboarding, or `plugins install @openclaw/whatsapp` via the `exec` pattern above).
+2. Run login inside the running gateway container:
 
    ```bash
-   docker compose run --rm openclaw-cli channels login --channel whatsapp
+   docker compose exec openclaw-gateway node dist/index.js channels login --channel whatsapp
    ```
 
    A **QR code** appears in the terminal (or follow the image’s instructions). Scan it with the phone whose WhatsApp account should **send** outbound messages.
 
-3. If your config uses **pairing** for unknown DMs, approve from the same CLI pattern:
+3. If your config uses **pairing** for unknown DMs, approve with the same pattern:
 
    ```bash
-   docker compose run --rm openclaw-cli pairing list whatsapp
-   docker compose run --rm openclaw-cli pairing approve whatsapp <CODE>
+   docker compose exec openclaw-gateway node dist/index.js pairing list whatsapp
+   docker compose exec openclaw-gateway node dist/index.js pairing approve whatsapp <CODE>
    ```
 
-4. WhatsApp credentials persist in whatever **volume** or bind mount your stack uses for OpenClaw state — keep that volume across restarts or you will need to scan again.
+4. WhatsApp credentials persist in the bind-mounted `~/.openclaw` folder on your Mac. Keep it across restarts or you will need to scan again.
 
 **Then:** `openclaw-express` calls the gateway with `to=+E164`; the linked WhatsApp account sends to that number, subject to `channels.whatsapp` allowlists / pairing on the gateway.
 
@@ -70,7 +80,7 @@ The **gateway container** holds the WhatsApp Web session. You only need to pair 
 | On your **host** (this repo, `npm start`) | `ws://127.0.0.1:18789` — gateway port **published** in Compose |
 | In **another Docker container** (same machine) | `ws://host.docker.internal:18789` (Docker Desktop), or `ws://<gateway-service-hostname>:18789` on a **shared Compose network** |
 
-Optional — pin models on the **gateway** (not in Express). Active file: `openclaw config file` (often `~/.openclaw/openclaw.json` on Windows).
+Optional — pin models on the **gateway** (not in Express). Active file: `~/.openclaw/openclaw.json` on your Mac (bind-mounted into the container).
 
 Use a **non-reasoning** primary and fallbacks (e.g. Groq Llama → Gemini Flash). Avoid putting reasoning-style models in the fallback chain or you will see meta commentary in chat replies.
 
@@ -87,23 +97,24 @@ Use a **non-reasoning** primary and fallbacks (e.g. Groq Llama → Gemini Flash)
 }
 ```
 
-Or apply the checked-in patch from this folder (restart the gateway afterward):
+Or apply the checked-in patch from this folder (run from `openclaw-gateway-docker`, then restart the gateway):
 
 ```bash
-openclaw config patch --file openclaw-model-pin.json5
+docker compose exec -T openclaw-gateway node dist/index.js config patch --stdin < ../openclaw-express/openclaw-model-pin.json5
+docker compose restart openclaw-gateway
 ```
 
 If you ever need a fresh dashboard URL:
 
 ```bash
-docker compose run --rm openclaw-cli dashboard --no-open
+docker compose exec openclaw-gateway node dist/index.js dashboard --no-open
 ```
 
 ## 2. Configure this Express app
 
 ```bash
-cd E:\Agents\openclaw-express
-copy .env.example .env       # PowerShell:  Copy-Item .env.example .env
+cd ../openclaw-express
+cp .env.example .env
 npm install
 ```
 
@@ -243,17 +254,23 @@ openclaw-express/
 ├── .env.example
 ├── .gitignore
 ├── README.md
-└── src/
-    ├── server.js              # Express bootstrap + lifecycle
-    ├── openclawClient.js      # Singleton OpenClaw gateway client
-    ├── routes/
-    │   ├── chat.js            # POST /api/chat/ask + /api/chat/stream
-    │   └── whatsappDeliver.js # POST /api/whatsapp/ask-deliver
-    └── utils/
-        ├── agentStreamCollect.js # consume agent stream → answer + streamError
-        ├── excelContext.js    # xlsx → TSV context + truncation
-        └── whatsappSession.js # E.164 + sessionKey helpers
+├── persona.txt                # system prompt sent with every chat request
+├── src/
+│   ├── server.js              # Express bootstrap + lifecycle
+│   ├── openclawClient.js      # Singleton OpenClaw gateway client
+│   ├── routes/
+│   │   ├── chat.js            # POST /api/chat/ask + /api/chat/stream
+│   │   └── whatsappDeliver.js # POST /api/whatsapp/ask-deliver
+│   └── utils/
+│       ├── agentStreamCollect.js # consume agent stream → answer + streamError
+│       ├── excelContext.js    # xlsx → TSV context + truncation
+│       ├── persona.js         # load + cache persona.txt
+│       ├── sanitizeChatAnswer.js # strip leaked planning / tags from answers
+│       └── whatsappSession.js # E.164 + sessionKey helpers
+└── test/                      # node:test suite (npm test), runs offline
 ```
+
+Inbound WhatsApp auto-replies are handled by the gateway itself, not by this app.
 
 ## Troubleshooting
 
