@@ -14,8 +14,9 @@ import {
 
 export const autopilotRouter = Router();
 
-// How many recent messages to show the model when continuing a conversation.
-const CONTEXT_MESSAGES = 30;
+// How many recent messages to show the model when continuing a conversation. Kept small:
+// Groq's free tier caps a whole request at 8,000 tokens.
+const CONTEXT_MESSAGES = 12;
 
 // Validates `to` (body or URL) against AUTOPILOT_NUMBERS; sends the error response itself.
 const resolveMatch = (to, res) => {

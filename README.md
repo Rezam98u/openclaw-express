@@ -184,7 +184,7 @@ data: {"type":"text","text":"..."}
 | Situation | `mode` | What is sent |
 | --- | --- | --- |
 | New number (no stored history) | `opener` | A first message: the conversation starts from scratch |
-| Existing conversation | `continue` | Your next message, written from the last 30 messages |
+| Existing conversation | `continue` | Your next message, written from the last 12 messages |
 | `"restart": true` | `opener` | Wipes that match's conversation, then sends a fresh opener |
 
 Conversations are never wiped automatically. The gateway's archive window is set to 10 years by `npm run whatsapp:sync`, so even a match who goes quiet for months continues where you left off.
@@ -248,7 +248,7 @@ npm run whatsapp:sync:dry   # validate
 npm run whatsapp:sync       # apply to the running gateway
 ```
 
-This sets `session.dmScope: "per-channel-peer"` (one conversation per match), `session.maintenance.pruneAfter: "3650d"` (conversations aren't archived after the default 30 quiet days), `channels.whatsapp.dmPolicy: "allowlist"` with `allowFrom` = `AUTOPILOT_NUMBERS` (only listed matches are answered; nobody gets pairing codes), and `channels.whatsapp.direct["*"].systemPrompt` = `persona.txt`.
+This sets `session.dmScope: "per-channel-peer"` (one conversation per match), `session.maintenance.pruneAfter: "3650d"` (conversations aren't archived after the default 30 quiet days), `channels.whatsapp.dmPolicy: "allowlist"` with `allowFrom` = `AUTOPILOT_NUMBERS` (only listed matches are answered; nobody gets pairing codes), `channels.whatsapp.direct["*"].systemPrompt` = `persona.txt`, `channels.whatsapp.dmHistoryLimit: 20` (only the last 20 turns go to the model; the full conversation stays stored), and `agents.defaults.thinkingDefault: "low"` (less hidden reasoning). The last two keep each request well inside Groq's free tier of 8,000 tokens per minute.
 
 ## Project layout
 

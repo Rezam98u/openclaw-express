@@ -11,6 +11,13 @@
 //                                          only listed matches are answered; no pairing codes
 //   channels.whatsapp.direct = { "*": { systemPrompt: persona } }
 //                                          one persona for every admitted DM (replaces the map)
+//   channels.whatsapp.dmHistoryLimit = 20  only the last 20 turns of a match go to the model; the
+//                                          full conversation stays stored
+//   agents.defaults.thinkingDefault = "low"
+//                                          less hidden reasoning: fewer tokens, faster, fewer leaks
+//
+// The last two keep requests inside Groq's free tier (8,000 tokens per minute, and a single
+// request may not exceed that either).
 import fs from "fs";
 import { getPersonaPath } from "../src/utils/persona.js";
 import { parseE164List } from "../src/utils/whatsappSession.js";
@@ -29,11 +36,13 @@ if (!numbers.length) {
 
 const patch = {
   session: { dmScope: "per-channel-peer", maintenance: { pruneAfter: "3650d" } },
+  agents: { defaults: { thinkingDefault: "low" } },
   channels: {
     whatsapp: {
       dmPolicy: "allowlist",
       allowFrom: numbers,
       direct: { "*": { systemPrompt: persona } },
+      dmHistoryLimit: 20,
     },
   },
 };
