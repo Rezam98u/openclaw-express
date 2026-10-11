@@ -142,14 +142,14 @@ Returns gateway connection status.
 curl http://localhost:8080/health
 ```
 
-### `POST /api/chat/ask`
+### Coach: `POST /api/chat/ask`
 
-Synchronous one-shot chat. Returns the full answer once it's ready.
+**Coach (Option A):** the AI helps you. Paste what the match wrote as `question`; you get back **one suggested reply** in the persona, to send yourself. Nothing is sent to WhatsApp and nothing is stored: every request runs in its own throwaway session (`agent:main:coach:<uuid>`) that is deleted afterwards.
 
 ```bash
-curl -X POST http://localhost:8080/api/chat/ask \
+curl -s -X POST http://localhost:8080/api/chat/ask \
   -H "Content-Type: application/json" \
-  -d "{\"question\":\"Summarize the SOLID principles in 3 bullets.\"}"
+  -d '{"question":"Haha you seem fun. What do you do on weekends?"}'
 ```
 
 Response:
@@ -158,19 +158,16 @@ Response:
 { "answer": "..." }
 ```
 
-Optional fields:
+Optional field: `agentId`, to target a specific agent configured in the gateway (default `main`).
 
-- `sessionKey` — continue an existing conversation
-- `agentId` — target a specific agent configured in the gateway
+### Coach: `POST /api/chat/stream`
 
-### `POST /api/chat/stream`
-
-Server-Sent Events stream of agent chunks (`text`, `tool_use`, `tool_result`, `done`, `error`).
+Same as `/api/chat/ask`, streamed as Server-Sent Events of agent chunks (`text`, `tool_use`, `tool_result`, `done`, `error`). Unlike `/ask`, the streamed text is not sanitized.
 
 ```bash
 curl -N -X POST http://localhost:8080/api/chat/stream \
   -H "Content-Type: application/json" \
-  -d "{\"question\":\"Refactor my todo list app.\"}"
+  -d '{"question":"Haha you seem fun. What do you do on weekends?"}'
 ```
 
 Each event line looks like:
@@ -253,72 +250,6 @@ npm run whatsapp:sync       # apply to the running gateway
 
 This sets `session.dmScope: "per-channel-peer"` (one conversation per match), `session.maintenance.pruneAfter: "3650d"` (conversations aren't archived after the default 30 quiet days), `channels.whatsapp.dmPolicy: "allowlist"` with `allowFrom` = `AUTOPILOT_NUMBERS` (only listed matches are answered; nobody gets pairing codes), and `channels.whatsapp.direct["*"].systemPrompt` = `persona.txt`.
 
-### `POST /api/whatsapp/ask-deliver`
-
-Runs **one** agent turn with spreadsheet data as context, then **delivers** the assistant reply to a **WhatsApp DM** through the gateway (same Groq path as `/api/chat/*`).
-
-**Prompt shape**
-
-- **User message** to the agent is only **`task`** (plain text, like a single user turn).
-- **System** is sent via **`extraSystemPrompt`**: your optional `extraSystemPrompt` field **plus** the spreadsheet as a TSV block. If you omit `extraSystemPrompt` but the sheet has rows, a default opener is used: *“You are a dating message coach…”* so guidelines in the file stay on the system side.
-
-**Prerequisites on the gateway**
-
-- WhatsApp channel linked (`openclaw channels login --channel whatsapp`) and gateway running.
-- `channels.whatsapp` **dmPolicy** / **allowFrom** / **pairing** must allow the destination number. See OpenClaw docs: [WhatsApp channel](https://docs.openclaw.com/channels/whatsapp).
-
-**Request:** `multipart/form-data`
-
-| Field | Required | Description |
-| --- | --- | --- |
-| `file` | Yes | `.xlsx` or `.xls` (first worksheet, or see `sheetName`) |
-| `task` | Yes | **User** instruction only (alias: `question`; e.g. “Write a playful opening message…”) — spreadsheet stays in **system** |
-| `to` | Yes | Destination in **E.164** form, e.g. `+15551234567` |
-| `agentId` | No | Gateway agent id (default `main`) |
-| `sheetName` | No | Worksheet name; default is the first sheet |
-| `extraSystemPrompt` | No | **System** prefix before the TSV block; if omitted and the sheet has data, a default dating-coach line is used |
-
-**Environment**
-
-- `MAX_EXCEL_CONTEXT_CHARS` — max characters of TSV context injected into the prompt (default **24000**). The response includes `contextMeta.truncated` if the sheet was cut off. Large prompts can trigger **Groq TPM / size errors**; lower this value or reduce the spreadsheet size.
-
-**Example (curl)**
-
-```bash
-curl -X POST http://localhost:8080/api/whatsapp/ask-deliver \
-  -F "file=@./sample.xlsx" \
-  -F "task=Summarize the spreadsheet in 3 short bullet points suitable for WhatsApp." \
-  -F "to=+15551234567" \
-  -F "sheetName=Sheet1"
-```
-
-**Response**
-
-- **`deliveryRequested`** — always `true` for this route (the gateway is asked to deliver when possible).
-- **`delivered`** — `true` only if some non-empty assistant **text** was streamed **and** no stream-level error was reported. This does not prove WhatsApp server ACK; use logs and the device to confirm.
-- **`hint`** — present when `answer` is empty but the run did not report a stream error (check gateway + WhatsApp).
-- **`502`** — transport failure or **`detail`** from a failed agent lifecycle (partial **`answer`** may still be present).
-
-```json
-{
-  "answer": "...",
-  "sessionKey": "agent:main:whatsapp:direct:+15551234567",
-  "deliveryRequested": true,
-  "delivered": true,
-  "contextMeta": {
-    "sheetName": "Sheet1",
-    "rowCount": 42,
-    "colCount": 5,
-    "charCount": 12000,
-    "truncated": false,
-    "maxChars": 24000,
-    "sourceBytes": 9012
-  }
-}
-```
-
-**Note:** Group chats use a different `sessionKey` shape (`...whatsapp:group:...`); this route only builds DM keys from `to`.
-
 ## Project layout
 
 ```
@@ -332,12 +263,10 @@ openclaw-express/
 │   ├── server.js              # Express bootstrap + lifecycle
 │   ├── openclawClient.js      # Singleton OpenClaw gateway client
 │   ├── routes/
-│   │   ├── chat.js            # POST /api/chat/ask + /api/chat/stream
-│   │   ├── autopilot.js       # /api/autopilot/message + /conversations/:to
-│   │   └── whatsappDeliver.js # POST /api/whatsapp/ask-deliver
+│   │   ├── chat.js            # coach: POST /api/chat/ask + /api/chat/stream
+│   │   └── autopilot.js       # /api/autopilot/message + /conversations/:to
 │   └── utils/
 │       ├── agentStreamCollect.js # consume agent stream → answer + streamError
-│       ├── excelContext.js    # xlsx → TSV context + truncation
 │       ├── persona.js         # load + cache persona.txt
 │       ├── sanitizeChatAnswer.js # strip leaked planning / tags from answers
 │       └── whatsappSession.js # E.164 + sessionKey helpers
@@ -354,7 +283,7 @@ Inbound WhatsApp auto-replies are handled by the gateway itself, not by this app
 | `401 Unauthorized` from gateway | Token mismatch | Make `OPENCLAW_GATEWAY_TOKEN` identical on both sides |
 | `HTTP 401` from Groq in gateway logs | `GROQ_API_KEY` not visible to daemon | Put it in the gateway's `.env` (loaded by Docker Compose) |
 | `HTTP 429` from Groq | Free-tier TPM cap | Lower concurrency or upgrade Groq plan |
-| `413` / large request errors from Groq | Prompt too large vs TPM | Lower `MAX_EXCEL_CONTEXT_CHARS`, shrink the sheet, or shorten `task` |
+| `413` / large request errors from Groq | Prompt too large vs TPM | Keep `tools.profile` set to `minimal` on the gateway and keep `persona.txt` short |
 | Reply not received on WhatsApp | Channel not linked, wrong session, blocked by `allowFrom` | `openclaw channels status`; check pairing and policies |
 | Tool calls ignored | Picked a Groq model without function-calling | Use `groq/llama-3.3-70b-versatile` |
 | `answer` empty, `delivered` false, `hint` set | Model sent no text in the stream (or similar) | Check gateway logs, WhatsApp thread, Groq quotas; try `/api/chat/stream` to inspect chunks |

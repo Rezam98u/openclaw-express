@@ -1,34 +1,48 @@
+import crypto from "crypto";
 import { Router } from "express";
 import { getClient } from "../openclawClient.js";
 import { loadPersona } from "../utils/persona.js";
 import { sanitizeChatAnswer } from "../utils/sanitizeChatAnswer.js";
 import { collectAgentTextStream } from "../utils/agentStreamCollect.js";
 
+// Coach endpoint (Option A, "the AI helps you"): `question` is what the match wrote, the answer
+// is a reply the user can send themselves. Nothing is sent to WhatsApp.
+//
+// Each request runs in its own throwaway session (agent:<id>:coach:<uuid>), deleted afterwards:
+// every reply is a single fresh turn driven by the persona, concurrent requests can't clobber
+// each other, and callers can't name (and wipe) another session such as a match's autopilot
+// conversation.
 export const chatRouter = Router();
 
-chatRouter.post("/ask", async (req, res) => {
-  const { question, sessionKey: providedSessionKey, agentId: providedAgentId } = req.body || {};
+const prepare = (req, res) => {
+  const { question, agentId: providedAgentId } = req.body || {};
   if (typeof question !== "string" || !question.trim()) {
-    return res.status(400).json({ error: "Field 'question' (string) is required." });
+    res.status(400).json({ error: "Field 'question' (string) is required." });
+    return null;
   }
-
   const agentId = providedAgentId?.trim() || "main";
-  // Stable per-agent key so we can reliably reset history before each call.
-  const sessionKey = providedSessionKey || `agent:${agentId}:chat:opener`;
-
   const persona = loadPersona();
-  const options = {
-    sessionKey,
-    agentId,
-    ...(persona ? { extraSystemPrompt: persona } : {}),
+  return {
+    question,
+    sessionKey: `agent:${agentId}:coach:${crypto.randomUUID()}`,
+    options: { agentId, ...(persona ? { extraSystemPrompt: persona } : {}) },
   };
+};
 
+const discard = (client, sessionKey) =>
+  client?.sessions.delete(sessionKey, { deleteTranscript: true }).catch(() => {});
+
+chatRouter.post("/ask", async (req, res) => {
+  const run = prepare(req, res);
+  if (!run) return;
+
+  let client;
   try {
-    const client = await getClient();
-    // Each opener is independent — wipe prior turns so persona examples drive every reply.
-    await client.sessions.reset(sessionKey, { reason: "new" }).catch(() => {});
+    client = await getClient();
     // chatSync resolves to "" when the run fails, so collect the stream to see error chunks.
-    const { answer, streamError } = await collectAgentTextStream(client.chat(question, options));
+    const { answer, streamError } = await collectAgentTextStream(
+      client.chat(run.question, { ...run.options, sessionKey: run.sessionKey })
+    );
     if (streamError) {
       return res.status(502).json({ error: "Agent run failed.", detail: streamError });
     }
@@ -36,24 +50,14 @@ chatRouter.post("/ask", async (req, res) => {
   } catch (err) {
     console.error("[chat:ask]", err);
     res.status(502).json({ error: err.message });
+  } finally {
+    discard(client, run.sessionKey);
   }
 });
 
 chatRouter.post("/stream", async (req, res) => {
-  const { question, sessionKey: providedSessionKey, agentId: providedAgentId } = req.body || {};
-  if (typeof question !== "string" || !question.trim()) {
-    return res.status(400).json({ error: "Field 'question' (string) is required." });
-  }
-
-  const agentId = providedAgentId?.trim() || "main";
-  const sessionKey = providedSessionKey || `agent:${agentId}:chat:opener`;
-
-  const persona = loadPersona();
-  const options = {
-    sessionKey,
-    agentId,
-    ...(persona ? { extraSystemPrompt: persona } : {}),
-  };
+  const run = prepare(req, res);
+  if (!run) return;
 
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
@@ -68,10 +72,10 @@ chatRouter.post("/stream", async (req, res) => {
   let cancelled = false;
   req.on("close", () => { cancelled = true; });
 
+  let client;
   try {
-    const client = await getClient();
-    await client.sessions.reset(sessionKey, { reason: "new" }).catch(() => {});
-    const stream = client.chat(question, options);
+    client = await getClient();
+    const stream = client.chat(run.question, { ...run.options, sessionKey: run.sessionKey });
 
     for await (const chunk of stream) {
       if (cancelled) break;
@@ -83,5 +87,6 @@ chatRouter.post("/stream", async (req, res) => {
     sendEvent("error", { message: err.message });
   } finally {
     res.end();
+    discard(client, run.sessionKey);
   }
 });

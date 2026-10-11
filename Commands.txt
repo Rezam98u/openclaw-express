@@ -35,28 +35,32 @@ Or just send /new or /reset in the chat — that clears session history without 
 # After any change: docker compose restart openclaw-gateway
 
 ═══════════════════════════════════════════════════════
- TEST: Excel → AI → WhatsApp delivery
+ TEST: Autopilot (AI texts a match on WhatsApp)
 ═══════════════════════════════════════════════════════
 
 # Prerequisites:
 #   Gateway container running and healthy:  docker compose ps   (in openclaw-gateway-docker)
 #   Express running (in openclaw-express):  npm run dev
+#   The number is in AUTOPILOT_NUMBERS:     npm run match:add -- +98XXXXXXXXXX  (then restart Express)
 
-# Send Book1.xlsx to the AI and deliver the answer to a WhatsApp number:
+# Preview the next message (nothing is sent):
+curl -s -X POST http://localhost:8080/api/autopilot/message \
+  -H "Content-Type: application/json" \
+  -d '{"to":"+98XXXXXXXXXX","context":"Likes hiking","send":false}'
 
-curl -X POST http://localhost:8080/api/whatsapp/ask-deliver \
-  -F "file=@./Book1.xlsx" \
-  -F "task=What is the total sales in the spreadsheet?" \
-  -F "to=+98XXXXXXXXXX"
+# Send it (opener for a new number, next message for an existing conversation):
+curl -s -X POST http://localhost:8080/api/autopilot/message \
+  -H "Content-Type: application/json" \
+  -d '{"to":"+98XXXXXXXXXX","context":"Likes hiking"}'
+
+# Read the stored conversation (%2B is "+"):
+curl -s "http://localhost:8080/api/autopilot/conversations/%2B98XXXXXXXXXX"
 
 # Replace +98XXXXXXXXXX with the real WhatsApp number (E.164 format: +countrycode + number, no spaces).
-# Example Iran number: +989121234567
-
-# To read a specific sheet by name:
-#   add:  -F "sheetName=Sheet2"
+# Test number: +989337203961
 
 ═══════════════════════════════════════════════════════
- TEST: Simple chat (no Excel, no WhatsApp delivery)
+ TEST: Simple chat (no WhatsApp delivery)
 ═══════════════════════════════════════════════════════
 
 curl -s -X POST http://localhost:8080/api/chat/ask \

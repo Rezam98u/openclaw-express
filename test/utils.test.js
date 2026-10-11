@@ -1,6 +1,5 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { makeWorkbook } from "./helpers.js";
 import { sanitizeChatAnswer } from "../src/utils/sanitizeChatAnswer.js";
 import {
   buildWhatsAppDmSessionKey,
@@ -8,7 +7,6 @@ import {
   normalizeE164,
   parseE164List,
 } from "../src/utils/whatsappSession.js";
-import { bufferToExcelContext } from "../src/utils/excelContext.js";
 import { collectAgentTextStream } from "../src/utils/agentStreamCollect.js";
 import { formatTranscript, toConversation } from "../src/utils/conversation.js";
 
@@ -48,28 +46,6 @@ test("whatsappSession: E.164 validation and session keys", () => {
 test("whatsappSession: parseE164List keeps valid numbers only", () => {
   assert.deepEqual(parseE164List("+491511234567, +989121234567 nope,,0151"), ["+491511234567", "+989121234567"]);
   assert.deepEqual(parseE164List(undefined), []);
-});
-
-test("excelContext: converts the first sheet to TSV with metadata", () => {
-  const buf = makeWorkbook({ Sales: [["item", "qty"], ["apple", 3], ["pear", 5]] });
-  const { text, meta } = bufferToExcelContext(buf);
-  assert.equal(text, "item\tqty\napple\t3\npear\t5");
-  assert.equal(meta.sheetName, "Sales");
-  assert.equal(meta.rowCount, 3);
-  assert.equal(meta.colCount, 2);
-  assert.equal(meta.truncated, false);
-  assert.equal(meta.sourceBytes, buf.length);
-});
-
-test("excelContext: picks a named sheet, falls back on unknown names, truncates", () => {
-  const buf = makeWorkbook({ A: [["first"]], B: [["second"]] });
-  assert.equal(bufferToExcelContext(buf, { sheetName: "B" }).text, "second");
-  assert.equal(bufferToExcelContext(buf, { sheetName: "Nope" }).text, "first");
-
-  const { text, meta } = bufferToExcelContext(buf, { sheetName: "B", maxChars: 3 });
-  assert.equal(text, "sec");
-  assert.equal(meta.truncated, true);
-  assert.equal(meta.charCount, 3);
 });
 
 test("collectAgentTextStream: joins text and reports errors", async () => {

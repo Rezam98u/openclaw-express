@@ -1,7 +1,6 @@
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import express from "express";
-import { makeWorkbook } from "./helpers.js";
 
 // Point the client at a closed port so gateway-backed routes fail fast and predictably.
 process.env.OPENCLAW_GATEWAY_URL = "ws://127.0.0.1:1";
@@ -10,7 +9,6 @@ process.env.OPENCLAW_GATEWAY_TOKEN = "test-token";
 const { chatRouter } = await import("../src/routes/chat.js");
 process.env.AUTOPILOT_NUMBERS = "+989121234567";
 
-const { whatsappDeliverRouter } = await import("../src/routes/whatsappDeliver.js");
 const { autopilotRouter } = await import("../src/routes/autopilot.js");
 const { disconnectClient } = await import("../src/openclawClient.js");
 
@@ -21,7 +19,6 @@ before(async () => {
   const app = express();
   app.use(express.json());
   app.use("/api/chat", chatRouter);
-  app.use("/api/whatsapp", whatsappDeliverRouter);
   app.use("/api/autopilot", autopilotRouter);
   await new Promise((resolve) => {
     server = app.listen(0, "127.0.0.1", resolve);
@@ -36,11 +33,6 @@ after(async () => {
 
 const postJson = (path, body) =>
   fetch(base + path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-
-const xlsxBlob = (rows) =>
-  new Blob([makeWorkbook({ Sheet1: rows })], {
-    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  });
 
 test("POST /api/chat/ask rejects a missing or blank question", async () => {
   for (const body of [{}, { question: "   " }, { question: 42 }]) {
@@ -66,43 +58,6 @@ test("POST /api/chat/stream emits an SSE error event when the gateway is unreach
   assert.equal(res.status, 200);
   assert.match(res.headers.get("content-type"), /text\/event-stream/);
   assert.match(await res.text(), /^event: error\ndata: \{"message":/);
-});
-
-test("POST /api/whatsapp/ask-deliver validates task, number and file", async () => {
-  const send = async (fields, withFile = true) => {
-    const form = new FormData();
-    for (const [k, v] of Object.entries(fields)) form.append(k, v);
-    if (withFile) form.append("file", xlsxBlob([["x"]]), "book.xlsx");
-    const res = await fetch(base + "/api/whatsapp/ask-deliver", { method: "POST", body: form });
-    return { status: res.status, body: await res.json() };
-  };
-
-  let r = await send({ to: "+491511234567" });
-  assert.equal(r.status, 400);
-  assert.match(r.body.error, /task/);
-
-  r = await send({ task: "sum it", to: "0151" });
-  assert.equal(r.status, 400);
-  assert.match(r.body.error, /E\.164/);
-
-  r = await send({ task: "sum it", to: "+491511234567" }, false);
-  assert.equal(r.status, 400);
-  assert.match(r.body.error, /file/);
-
-  r = await send({ task: "sum it", to: "+491511234567" });
-  assert.equal(r.status, 502);
-  assert.equal(r.body.sessionKey, "agent:main:whatsapp:direct:+491511234567");
-  assert.equal(r.body.contextMeta.rowCount, 1);
-});
-
-test("POST /api/whatsapp/ask-deliver refuses autopilot matches", async () => {
-  const form = new FormData();
-  form.append("task", "sum it");
-  form.append("to", "+989121234567");
-  form.append("file", xlsxBlob([["x"]]), "book.xlsx");
-  const res = await fetch(base + "/api/whatsapp/ask-deliver", { method: "POST", body: form });
-  assert.equal(res.status, 409);
-  assert.match((await res.json()).error, /autopilot/);
 });
 
 test("POST /api/autopilot/message validates the number and context", async () => {
