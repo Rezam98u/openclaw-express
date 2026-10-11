@@ -7,6 +7,7 @@ import {
   buildWhatsAppDmSessionKey,
   isValidE164,
   normalizeE164,
+  parseE164List,
 } from "../utils/whatsappSession.js";
 
 export const whatsappDeliverRouter = Router();
@@ -40,8 +41,13 @@ whatsappDeliverRouter.post("/ask-deliver", upload.single("file"), async (req, re
   if (!to || !isValidE164(to)) return res.status(400).json({ error: "Valid E.164 'to' field required." });
   if (!req.file?.buffer) return res.status(400).json({ error: "Spreadsheet file 'file' is required." });
 
-  const { text: excelText, meta: contextMeta } = bufferToExcelContext(req.file.buffer, { sheetName });
   const recipient = normalizeE164(to);
+  // This route resets the DM session first; for an autopilot match that would wipe the stored conversation.
+  if (parseE164List(process.env.AUTOPILOT_NUMBERS).includes(recipient)) {
+    return res.status(409).json({ error: "Number is an autopilot match; use /api/autopilot/message so its conversation is kept." });
+  }
+
+  const { text: excelText, meta: contextMeta } = bufferToExcelContext(req.file.buffer, { sheetName });
   const sessionKey = buildWhatsAppDmSessionKey(agentId, recipient);
 
   const message = [

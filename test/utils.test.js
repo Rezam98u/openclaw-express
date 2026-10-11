@@ -10,6 +10,7 @@ import {
 } from "../src/utils/whatsappSession.js";
 import { bufferToExcelContext } from "../src/utils/excelContext.js";
 import { collectAgentTextStream } from "../src/utils/agentStreamCollect.js";
+import { formatTranscript, toConversation } from "../src/utils/conversation.js";
 
 test("sanitizeChatAnswer: non-strings and blanks", () => {
   assert.equal(sanitizeChatAnswer(undefined), "");
@@ -84,4 +85,22 @@ test("collectAgentTextStream: joins text and reports errors", async () => {
     { answer: "partial", streamError: "quota" }
   );
   assert.equal((await collectAgentTextStream(stream([{ type: "error" }]))).streamError, "Agent stream reported an error.");
+});
+
+test("conversation: maps gateway history to match/me turns and a transcript", () => {
+  const history = [
+    { role: "assistant", content: [{ type: "text", text: "Hiking or puns first?" }], timestamp: 1 },
+    { role: "user", content: " Puns, obviously ", timestamp: 2 },
+    { role: "assistant", content: [{ type: "thinking", thinking: "plan..." }, { type: "text", text: "Bold choice." }], timestamp: 3 },
+    { role: "assistant", content: [{ type: "thinking", thinking: "only thinking" }], timestamp: 4 },
+    { role: "toolResult", content: "ignored", timestamp: 5 },
+  ];
+  const convo = toConversation(history);
+  assert.deepEqual(convo, [
+    { from: "me", text: "Hiking or puns first?", timestamp: 1 },
+    { from: "match", text: "Puns, obviously", timestamp: 2 },
+    { from: "me", text: "Bold choice.", timestamp: 3 },
+  ]);
+  assert.equal(formatTranscript(convo), "Me: Hiking or puns first?\nThem: Puns, obviously\nMe: Bold choice.");
+  assert.deepEqual(toConversation(undefined), []);
 });

@@ -180,15 +180,24 @@ event: text
 data: {"type":"text","text":"..."}
 ```
 
-### `POST /api/autopilot/opener`
+### Autopilot: `POST /api/autopilot/message`
 
-**Autopilot:** the AI texts a match on WhatsApp **as you**. This route sends the first message; after that the **gateway** answers each of the match's replies on its own, in the persona, keeping one conversation per match.
+**Autopilot:** the AI texts a match on WhatsApp **as you**. Every match has **one durable conversation**, stored by the gateway (session `agent:main:whatsapp:direct:<number>`, on disk in `~/.openclaw`). The **gateway** answers each of the match's replies on its own, in the persona, with the full conversation as context. This route sends **your** next message into that conversation:
 
-How it works:
+| Situation | `mode` | What is sent |
+| --- | --- | --- |
+| New number (no stored history) | `opener` | A first message: the conversation starts from scratch |
+| Existing conversation | `continue` | Your next message, written from the last 30 messages |
+| `"restart": true` | `opener` | Wipes that match's conversation, then sends a fresh opener |
 
-1. Drafts the opener in a throwaway session (persona from `persona.txt`, no delivery).
-2. Cleans it with the same sanitizer as `/api/chat/ask`, so leaked planning text never reaches the match.
-3. Resets the match's session `agent:main:whatsapp:direct:<to>` (a new conversation), then sends **exactly that text** through the gateway's `send` RPC. The text is mirrored into the match's transcript, so the gateway's later replies know what was said.
+Conversations are never wiped automatically. The gateway's archive window is set to 10 years by `npm run whatsapp:sync`, so even a match who goes quiet for months continues where you left off.
+
+How a message is made:
+
+1. Reads the match's stored history (unless `restart`).
+2. Drafts the message in a throwaway session (persona from `persona.txt`, no delivery), then deletes that session.
+3. Cleans it with the same sanitizer as `/api/chat/ask`, so leaked planning text never reaches the match.
+4. Sends **exactly that text** through the gateway's `send` RPC and mirrors it into the match's conversation, so the gateway's later replies know what you said.
 
 **Request:** JSON
 
@@ -196,31 +205,53 @@ How it works:
 | --- | --- | --- |
 | `to` | Yes | Match number in **E.164** form; must be listed in `AUTOPILOT_NUMBERS` (else 403) |
 | `context` | No | What you know about the match (profile notes, photos, interests) |
-| `send` | No | `false` = preview only: draft and return the opener without sending anything |
+| `send` | No | `false` = preview only: draft and return the message without sending or changing anything |
+| `restart` | No | `true` = wipe this match's conversation and start over with an opener |
 | `agentId` | No | Gateway agent id (default `main`) |
 
 ```bash
 # Preview (nothing is sent)
-curl -s -X POST http://localhost:8080/api/autopilot/opener \
+curl -s -X POST http://localhost:8080/api/autopilot/message \
   -H "Content-Type: application/json" \
   -d '{"to":"+15551234567","context":"Likes hiking and bad puns","send":false}'
 
-# Send it
-curl -s -X POST http://localhost:8080/api/autopilot/opener \
+# Send it (opener for a new number, next message for an existing conversation)
+curl -s -X POST http://localhost:8080/api/autopilot/message \
   -H "Content-Type: application/json" \
   -d '{"to":"+15551234567","context":"Likes hiking and bad puns"}'
 ```
 
-Response: `{ "message": "...", "to": "+15551234567", "sessionKey": "agent:main:whatsapp:direct:+15551234567", "sent": true, "result": { ... } }`. `502` if the agent run or the send fails.
+Response: `{ "mode": "opener" | "continue", "message": "...", "to": "+15551234567", "sessionKey": "agent:main:whatsapp:direct:+15551234567", "sent": true, "result": { ... } }`. `502` if reading history, the agent run, or the send fails.
 
-**Gateway setup (once, and after every change to `persona.txt` or `AUTOPILOT_NUMBERS`):**
+### `GET /api/autopilot/conversations/:to`
+
+The stored conversation with one match, oldest first (`?limit=`, default 200). `from` is `"match"` or `"me"`.
+
+```bash
+curl -s "http://localhost:8080/api/autopilot/conversations/%2B15551234567"
+```
+
+```json
+{ "to": "+15551234567", "sessionKey": "agent:main:whatsapp:direct:+15551234567", "totalMessages": 3,
+  "messages": [{ "from": "me", "text": "...", "timestamp": 1791751684000 }, { "from": "match", "text": "...", "timestamp": 1791751840527 }] }
+```
+
+### Adding a match
+
+```bash
+npm run match:add -- +15551234567   # adds it to AUTOPILOT_NUMBERS in .env and updates the gateway
+```
+
+Then restart Express (it reads `.env` at startup). The first `POST /api/autopilot/message` to that number sends an opener.
+
+**Gateway setup (`match:add` runs this for you; run it yourself after editing `persona.txt`):**
 
 ```bash
 npm run whatsapp:sync:dry   # validate
 npm run whatsapp:sync       # apply to the running gateway
 ```
 
-This sets `session.dmScope: "per-channel-peer"` (one session per match), `channels.whatsapp.dmPolicy: "allowlist"` with `allowFrom` = `AUTOPILOT_NUMBERS` (only listed matches are answered; nobody gets pairing codes), and `channels.whatsapp.direct["*"].systemPrompt` = `persona.txt`.
+This sets `session.dmScope: "per-channel-peer"` (one conversation per match), `session.maintenance.pruneAfter: "3650d"` (conversations aren't archived after the default 30 quiet days), `channels.whatsapp.dmPolicy: "allowlist"` with `allowFrom` = `AUTOPILOT_NUMBERS` (only listed matches are answered; nobody gets pairing codes), and `channels.whatsapp.direct["*"].systemPrompt` = `persona.txt`.
 
 ### `POST /api/whatsapp/ask-deliver`
 
@@ -302,7 +333,7 @@ openclaw-express/
 │   ├── openclawClient.js      # Singleton OpenClaw gateway client
 │   ├── routes/
 │   │   ├── chat.js            # POST /api/chat/ask + /api/chat/stream
-│   │   ├── autopilot.js       # POST /api/autopilot/opener
+│   │   ├── autopilot.js       # /api/autopilot/message + /conversations/:to
 │   │   └── whatsappDeliver.js # POST /api/whatsapp/ask-deliver
 │   └── utils/
 │       ├── agentStreamCollect.js # consume agent stream → answer + streamError

@@ -4,6 +4,9 @@
 //
 // What it sets in ~/.openclaw/openclaw.json:
 //   session.dmScope = "per-channel-peer"   one session per match (default "main" mixes all DMs)
+//   session.maintenance.pruneAfter = "3650d"
+//                                          keep every match's conversation live (the default "30d"
+//                                          archives a conversation after a month of silence)
 //   channels.whatsapp.dmPolicy = "allowlist", allowFrom = AUTOPILOT_NUMBERS
 //                                          only listed matches are answered; no pairing codes
 //   channels.whatsapp.direct = { "*": { systemPrompt: persona } }
@@ -25,7 +28,7 @@ if (!numbers.length) {
 }
 
 const patch = {
-  session: { dmScope: "per-channel-peer" },
+  session: { dmScope: "per-channel-peer", maintenance: { pruneAfter: "3650d" } },
   channels: {
     whatsapp: {
       dmPolicy: "allowlist",

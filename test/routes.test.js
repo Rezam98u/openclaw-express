@@ -8,7 +8,7 @@ process.env.OPENCLAW_GATEWAY_URL = "ws://127.0.0.1:1";
 process.env.OPENCLAW_GATEWAY_TOKEN = "test-token";
 
 const { chatRouter } = await import("../src/routes/chat.js");
-process.env.AUTOPILOT_NUMBERS = "+491511234567, +989121234567";
+process.env.AUTOPILOT_NUMBERS = "+989121234567";
 
 const { whatsappDeliverRouter } = await import("../src/routes/whatsappDeliver.js");
 const { autopilotRouter } = await import("../src/routes/autopilot.js");
@@ -95,24 +95,45 @@ test("POST /api/whatsapp/ask-deliver validates task, number and file", async () 
   assert.equal(r.body.contextMeta.rowCount, 1);
 });
 
-test("POST /api/autopilot/opener validates the number and context", async () => {
-  let res = await postJson("/api/autopilot/opener", { to: "0151" });
+test("POST /api/whatsapp/ask-deliver refuses autopilot matches", async () => {
+  const form = new FormData();
+  form.append("task", "sum it");
+  form.append("to", "+989121234567");
+  form.append("file", xlsxBlob([["x"]]), "book.xlsx");
+  const res = await fetch(base + "/api/whatsapp/ask-deliver", { method: "POST", body: form });
+  assert.equal(res.status, 409);
+  assert.match((await res.json()).error, /autopilot/);
+});
+
+test("POST /api/autopilot/message validates the number and context", async () => {
+  let res = await postJson("/api/autopilot/message", { to: "0151" });
   assert.equal(res.status, 400);
   assert.match((await res.json()).error, /E\.164/);
 
-  res = await postJson("/api/autopilot/opener", { to: "+491511234567", context: 42 });
+  res = await postJson("/api/autopilot/message", { to: "+491511234567", context: 42 });
   assert.equal(res.status, 400);
   assert.match((await res.json()).error, /context/);
 });
 
-test("POST /api/autopilot/opener refuses numbers outside AUTOPILOT_NUMBERS", async () => {
-  const res = await postJson("/api/autopilot/opener", { to: "+15551234567" });
+test("POST /api/autopilot/message refuses numbers outside AUTOPILOT_NUMBERS", async () => {
+  const res = await postJson("/api/autopilot/message", { to: "+15551234567" });
   assert.equal(res.status, 403);
   assert.match((await res.json()).error, /AUTOPILOT_NUMBERS/);
 });
 
-test("POST /api/autopilot/opener returns 502 when the gateway is unreachable", async () => {
-  const res = await postJson("/api/autopilot/opener", { to: "+989121234567", send: false });
+test("POST /api/autopilot/message returns 502 when the gateway is unreachable", async () => {
+  const res = await postJson("/api/autopilot/message", { to: "+989121234567", send: false });
   assert.equal(res.status, 502);
   assert.ok((await res.json()).error);
+});
+
+test("GET /api/autopilot/conversations/:to validates, allowlists, and reports gateway errors", async () => {
+  let res = await fetch(`${base}/api/autopilot/conversations/0151`);
+  assert.equal(res.status, 400);
+
+  res = await fetch(`${base}/api/autopilot/conversations/+15551234567`);
+  assert.equal(res.status, 403);
+
+  res = await fetch(`${base}/api/autopilot/conversations/${encodeURIComponent("+989121234567")}`);
+  assert.equal(res.status, 502);
 });
