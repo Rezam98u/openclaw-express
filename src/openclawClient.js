@@ -7,7 +7,11 @@ const buildClient = () => {
   const instance = new OpenClawClient({
     url: process.env.OPENCLAW_GATEWAY_URL || "ws://localhost:18789",
     token: process.env.OPENCLAW_GATEWAY_TOKEN,
-    autoReconnect: true,
+    // operator.admin is required for sessions.reset, which every route calls before a run.
+    scopes: ["operator.read", "operator.write", "operator.admin"],
+    // Enabled only after the first successful connect (see getClient): a client whose
+    // initial connect fails is discarded, and must not keep retrying in the background.
+    autoReconnect: false,
     maxReconnectAttempts: 10,
   });
 
@@ -29,6 +33,7 @@ export const getClient = async () => {
     .connect()
     .then(() => {
       connectPromise = null;
+      client.options.autoReconnect = true;
       return client;
     })
     .catch((err) => {

@@ -2,6 +2,7 @@ import { Router } from "express";
 import { getClient } from "../openclawClient.js";
 import { loadPersona } from "../utils/persona.js";
 import { sanitizeChatAnswer } from "../utils/sanitizeChatAnswer.js";
+import { collectAgentTextStream } from "../utils/agentStreamCollect.js";
 
 export const chatRouter = Router();
 
@@ -26,8 +27,12 @@ chatRouter.post("/ask", async (req, res) => {
     const client = await getClient();
     // Each opener is independent — wipe prior turns so persona examples drive every reply.
     await client.sessions.reset(sessionKey, { reason: "new" }).catch(() => {});
-    const raw = await client.chatSync(question, options);
-    res.json({ answer: sanitizeChatAnswer(raw) });
+    // chatSync resolves to "" when the run fails, so collect the stream to see error chunks.
+    const { answer, streamError } = await collectAgentTextStream(client.chat(question, options));
+    if (streamError) {
+      return res.status(502).json({ error: "Agent run failed.", detail: streamError });
+    }
+    res.json({ answer: sanitizeChatAnswer(answer) });
   } catch (err) {
     console.error("[chat:ask]", err);
     res.status(502).json({ error: err.message });

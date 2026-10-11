@@ -1,6 +1,7 @@
 import express from "express";
 import { chatRouter } from "./routes/chat.js";
 import { whatsappDeliverRouter } from "./routes/whatsappDeliver.js";
+import { excelSessionRouter } from "./routes/excelSession.js";
 import { getClient, disconnectClient } from "./openclawClient.js";
 import { loadPersona } from "./utils/persona.js";
 import { startWhatsAppAutoReply } from "./listeners/whatsappAutoReply.js";
@@ -21,6 +22,7 @@ app.get("/health", async (_req, res) => {
 
 app.use("/api/chat", chatRouter);
 app.use("/api/whatsapp", whatsappDeliverRouter);
+app.use("/api/excel-session", excelSessionRouter);
 
 const start = async () => {
   loadPersona();
