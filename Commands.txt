@@ -17,22 +17,24 @@ docker compose exec openclaw-gateway node dist/index.js sessions cleanup --enfor
 Or just send /new or /reset in the chat — that clears session history without touching config at all.
 
 ═══════════════════════════════════════════════════════
- FIX A: Non-reasoning models only (gateway)
+ MODEL (gateway)
 ═══════════════════════════════════════════════════════
 
-# Primary should stay Groq Llama; remove DeepSeek from fallbacks if replies
-# look like chain-of-thought / meta commentary.
-#
-# Option 1 — patch file in this repo (run from openclaw-gateway-docker):
-#   docker compose exec -T openclaw-gateway node dist/index.js config patch --stdin --dry-run < ../openclaw-express/openclaw-model-pin.json5
-#   docker compose exec -T openclaw-gateway node dist/index.js config patch --stdin < ../openclaw-express/openclaw-model-pin.json5
-# If dry-run fails on unrelated schema noise, edit ~/.openclaw/openclaw.json by hand:
-#   agents.defaults.model.fallbacks = [ "google/gemini-2.5-flash" ]
-#
-# Option 2 — Groq only (fail if Groq is down; no silent DeepSeek):
-#   docker compose exec openclaw-gateway node dist/index.js config set agents.defaults.model.fallbacks '[]' --strict-json
-#
-# After any change: docker compose restart openclaw-gateway
+# What the gateway uses today: groq/openai/gpt-oss-120b, the only model, no fallbacks.
+# (Llama 3.3 was retired from Groq. gpt-oss-120b is a reasoning model; `npm run whatsapp:sync`
+# sets agents.defaults.thinkingDefault = "low" to keep its hidden reasoning short.)
+# Groq free tier for it: 8,000 tokens per minute, 200,000 per day; one reply ~2,900 tokens.
+# On a 429 the gateway retries the same model up to 9 times, ~50 s apart (slow replies).
+
+# Show the live setting:
+docker compose exec openclaw-gateway node dist/index.js config get agents.defaults.model
+
+# List Groq models the gateway knows:
+docker compose exec openclaw-gateway node dist/index.js models list --provider groq
+
+# Restore exactly this setting after experiments (no restart needed):
+docker compose exec -T openclaw-gateway node dist/index.js config patch --stdin --dry-run < ../openclaw-express/openclaw-model-pin.json5
+docker compose exec -T openclaw-gateway node dist/index.js config patch --stdin < ../openclaw-express/openclaw-model-pin.json5
 
 ═══════════════════════════════════════════════════════
  TEST: Autopilot (AI texts a match on WhatsApp)
@@ -41,29 +43,35 @@ Or just send /new or /reset in the chat — that clears session history without 
 # Prerequisites:
 #   Gateway container running and healthy:  docker compose ps   (in openclaw-gateway-docker)
 #   Express running (in openclaw-express):  npm run dev
+#   API key loaded into this shell (from openclaw-express; every /api call needs it):
+#     export API_KEY="$(grep '^API_KEY=' .env | cut -d= -f2-)"
 #   The number is in AUTOPILOT_NUMBERS:     npm run match:add -- +98XXXXXXXXXX  (then restart Express)
 
 # Preview the next message (nothing is sent):
 curl -s -X POST http://localhost:8080/api/autopilot/message \
+  -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"to":"+98XXXXXXXXXX","context":"Likes hiking","send":false}'
 
 # Send it (opener for a new number, next message for an existing conversation):
 curl -s -X POST http://localhost:8080/api/autopilot/message \
+  -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"to":"+98XXXXXXXXXX","context":"Likes hiking"}'
 
 # Read the stored conversation (%2B is "+"):
-curl -s "http://localhost:8080/api/autopilot/conversations/%2B98XXXXXXXXXX"
+curl -s -H "Authorization: Bearer $API_KEY" "http://localhost:8080/api/autopilot/conversations/%2B98XXXXXXXXXX"
 
 # Replace +98XXXXXXXXXX with the real WhatsApp number (E.164 format: +countrycode + number, no spaces).
 # Test number: +989337203961
 
 ═══════════════════════════════════════════════════════
- TEST: Simple chat (no WhatsApp delivery)
+ TEST: Coach (suggested reply, nothing is sent to WhatsApp)
 ═══════════════════════════════════════════════════════
 
+# Needs API_KEY in this shell (see the autopilot test above).
 curl -s -X POST http://localhost:8080/api/chat/ask \
+  -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"question":"say hi"}'
 
@@ -79,7 +87,7 @@ uri="http://localhost:8080/api/chat/ask"
   echo "BODY: $body"
   echo "=== RESPONSE ==="
 } > request-log.txt
-response=$(curl -s -X POST "$uri" -H "Content-Type: application/json" -d "$body")
+response=$(curl -s -X POST "$uri" -H "Authorization: Bearer $API_KEY" -H "Content-Type: application/json" -d "$body")
 echo "$response" >> request-log.txt
 echo "Response: $response"
 echo "Saved to request-log.txt"
@@ -97,19 +105,20 @@ docker compose logs --tail 50 openclaw-gateway       # add -f to follow
 cp ~/.openclaw/openclaw.json.last-good ~/.openclaw/openclaw.json
 docker compose restart openclaw-gateway
 
+═══════════════════════════════════════════════════════ GEMINI (Google) API KEY — not used today
 ═══════════════════════════════════════════════════════
- GEMINI (Google) API KEY
-═══════════════════════════════════════════════════════
 
-# 1. Create a key: https://aistudio.google.com/apikey
-
-# 2. Put it in the gateway's env file (Express doesn't use it):
-#    openclaw-gateway-docker/.env  -> GEMINI_API_KEY=AIza...
-
-# 3. Or set only in gateway config (overrides/mirrors .env for some setups):
-#    docker compose exec openclaw-gateway node dist/index.js config set env.vars.GEMINI_API_KEY AIza...your_key...
-
-# 4. Restart the gateway: docker compose restart openclaw-gateway
-
-# Fallback chain is now: Groq -> DeepSeek -> Google gemini-2.5-flash
-# Verify: docker compose exec openclaw-gateway node dist/index.js models list --provider google
+# Reality: openclaw-gateway-docker/.env may hold a GEMINI_API_KEY, but no model uses Gemini.
+# There is no fallback chain (no Groq -> DeepSeek -> Gemini); Groq gpt-oss-120b is the only model.
+#
+# Before using Gemini for match chats, note Google's terms for the FREE (unpaid) API:
+#   - users in the EEA, Switzerland or the UK may only be served with Paid Services,
+#   - don't send personal information to unpaid services; human reviewers may read them.
+# Match messages are personal data, so use a paid Gemini key if you add it.
+#
+# To add Gemini as a fallback later (not done):
+#   1. Key: https://aistudio.google.com/apikey -> openclaw-gateway-docker/.env: GEMINI_API_KEY=...
+#   2. docker compose restart openclaw-gateway   (picks up the new env var)
+#   3. docker compose exec openclaw-gateway node dist/index.js models list --provider google
+#   4. docker compose exec openclaw-gateway node dist/index.js config set agents.defaults.model.fallbacks '["google/<model-from-step-3>"]' --strict-json
+#      then update ../openclaw-express/openclaw-model-pin.json5 to match.

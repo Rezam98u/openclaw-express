@@ -1,15 +1,24 @@
-// Pin non-reasoning chat models only. Apply with:
-//   openclaw config patch --file openclaw-model-pin.json5 --dry-run
-//   openclaw config patch --file openclaw-model-pin.json5
+// The gateway's model, as it is actually configured (2026-10-12). Applying it changes
+// nothing on the current gateway; use it to restore the model after experiments.
+// Run from openclaw-gateway-docker:
+//   docker compose exec -T openclaw-gateway node dist/index.js config patch --stdin --dry-run < ../openclaw-express/openclaw-model-pin.json5
+//   docker compose exec -T openclaw-gateway node dist/index.js config patch --stdin < ../openclaw-express/openclaw-model-pin.json5
 //
-// Groq Llama 3.3 is primary; Gemini Flash is fallback (no DeepSeek in chain).
+// - Groq gpt-oss-120b is the only model. Llama 3.3 was retired from Groq.
+// - No fallbacks: when Groq returns 429, the gateway retries the same model (up to 9 times,
+//   ~50 s apart). Adding a fallback is an open decision (local Ollama, Cerebras, or a paid provider).
+// - gpt-oss-120b is a reasoning model. `npm run whatsapp:sync` sets
+//   agents.defaults.thinkingDefault = "low" to keep its hidden reasoning short, and
+//   src/utils/sanitizeChatAnswer.js strips reasoning that leaks into Express answers.
+// - Free tier: 8,000 tokens per minute and 200,000 per day for this model (per Groq
+//   organization). One reply costs ~2,900 input tokens; see CLAUDE.md "Token budget".
 
 {
   agents: {
     defaults: {
       model: {
-        primary: "groq/llama-3.3-70b-versatile",
-        fallbacks: ["google/gemini-2.5-flash"],
+        primary: "groq/openai/gpt-oss-120b",
+        fallbacks: [],
       },
     },
   },

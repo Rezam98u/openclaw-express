@@ -62,16 +62,15 @@ The **gateway container** holds the WhatsApp Web session. You only need to pair 
 
    A **QR code** appears in the terminal (or follow the image’s instructions). Scan it with the phone whose WhatsApp account should **send** outbound messages.
 
-3. If your config uses **pairing** for unknown DMs, approve with the same pattern:
+3. Who the gateway answers is an **allowlist**, not pairing: `npm run whatsapp:sync` sets `channels.whatsapp.dmPolicy: "allowlist"` with `allowFrom` = `AUTOPILOT_NUMBERS`, so no one is sent a pairing code. Check it with:
 
    ```bash
-   docker compose exec openclaw-gateway node dist/index.js pairing list whatsapp
-   docker compose exec openclaw-gateway node dist/index.js pairing approve whatsapp <CODE>
+   docker compose exec openclaw-gateway node dist/index.js channels status
    ```
 
 4. WhatsApp credentials persist in the bind-mounted `~/.openclaw` folder on your Mac. Keep it across restarts or you will need to scan again.
 
-**Then:** `openclaw-express` calls the gateway with `to=+E164`; the linked WhatsApp account sends to that number, subject to `channels.whatsapp` allowlists / pairing on the gateway.
+**Then:** Express sends autopilot messages with the gateway's `send` method to numbers in `AUTOPILOT_NUMBERS`, and the gateway answers those matches' replies on its own (see **Autopilot** below).
 
 ### Docker: Express ↔ gateway URL
 
@@ -80,28 +79,25 @@ The **gateway container** holds the WhatsApp Web session. You only need to pair 
 | On your **host** (this repo, `npm start`) | `ws://127.0.0.1:18789` — gateway port **published** in Compose |
 | In **another Docker container** (same machine) | `ws://host.docker.internal:18789` (Docker Desktop), or `ws://<gateway-service-hostname>:18789` on a **shared Compose network** |
 
-Optional — pin models on the **gateway** (not in Express). Active file: `~/.openclaw/openclaw.json` on your Mac (bind-mounted into the container).
+### Model (configured on the gateway, not in Express)
 
-Use a **non-reasoning** primary and fallbacks (e.g. Groq Llama → Gemini Flash). Avoid putting reasoning-style models in the fallback chain or you will see meta commentary in chat replies.
+The gateway's config file is `~/.openclaw/openclaw.json` on your Mac (bind-mounted into the container). What it uses today:
 
-```json5
-{
-  agents: {
-    defaults: {
-      model: {
-        primary: "groq/llama-3.3-70b-versatile",
-        fallbacks: ["google/gemini-2.5-flash"],
-      },
-    },
-  },
-}
+- **Model:** `groq/openai/gpt-oss-120b`, the only model. Llama 3.3 was retired from Groq.
+- **No fallback:** when Groq answers 429 (rate limit), the gateway retries the same model up to 9 times, about 50 seconds apart, so replies get slow. Choosing a fallback (local Ollama, Cerebras, or a paid provider) is still open.
+- **Reasoning:** `gpt-oss-120b` is a reasoning model. `npm run whatsapp:sync` sets `agents.defaults.thinkingDefault: "low"` to keep its hidden reasoning short, and `sanitizeChatAnswer.js` strips reasoning that leaks into Express answers. Replies the gateway sends to matches on its own are not sanitized.
+- **Groq free tier for this model:** 8,000 tokens per minute and 200,000 per day, shared across your whole Groq organization. A single request may not exceed 8,000 tokens either. One reply costs about 2,900 input tokens, so about 2 replies per minute and about 65 per day fit.
+
+Check the live setting:
+
+```bash
+docker compose exec openclaw-gateway node dist/index.js config get agents.defaults.model
 ```
 
-Or apply the checked-in patch from this folder (run from `openclaw-gateway-docker`, then restart the gateway):
+[`openclaw-model-pin.json5`](openclaw-model-pin.json5) holds exactly this setting; apply it to restore the model after experiments (run from `openclaw-gateway-docker`, no restart needed):
 
 ```bash
 docker compose exec -T openclaw-gateway node dist/index.js config patch --stdin < ../openclaw-express/openclaw-model-pin.json5
-docker compose restart openclaw-gateway
 ```
 
 If you ever need a fresh dashboard URL:
@@ -118,7 +114,11 @@ cp .env.example .env
 npm install
 ```
 
-Edit `.env` and set `OPENCLAW_GATEWAY_TOKEN` to the **same value** you used on the gateway.
+Edit `.env`:
+
+- `OPENCLAW_GATEWAY_TOKEN`: the **same value** you used on the gateway.
+- `API_KEY`: a random secret of at least 24 characters (`openssl rand -hex 32`). Every `/api` request must send it; see **Authentication** below.
+- `AUTOPILOT_NUMBERS`: the matches the AI may text (or use `npm run match:add`).
 
 If Express runs **inside Docker**, set `OPENCLAW_GATEWAY_URL` per the table in **Docker: Express ↔ gateway URL** above (not always `localhost` from inside a container).
 
@@ -134,6 +134,18 @@ Server boots on `http://localhost:8080`.
 
 ## API
 
+### Authentication
+
+- **API key:** every `/api/*` request needs `Authorization: Bearer <API_KEY>` (or `X-API-Key: <API_KEY>`). A missing or wrong key gets `401`. If `API_KEY` is missing or shorter than 24 characters, every `/api` request gets `503`, so the API never runs unprotected.
+- **Local only:** Express listens on `127.0.0.1` by default, so other devices on your network can't reach it. Set `HOST=0.0.0.0` only if you need network access, and keep the API key secret if you do.
+- **Open route:** only `/health` works without a key.
+
+For the examples below, load the key into your shell once (from `openclaw-express`):
+
+```bash
+export API_KEY="$(grep '^API_KEY=' .env | cut -d= -f2-)"
+```
+
 ### `GET /health`
 
 Returns gateway connection status.
@@ -148,6 +160,7 @@ curl http://localhost:8080/health
 
 ```bash
 curl -s -X POST http://localhost:8080/api/chat/ask \
+  -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"question":"Haha you seem fun. What do you do on weekends?"}'
 ```
@@ -166,6 +179,7 @@ Same as `/api/chat/ask`, streamed as Server-Sent Events of agent chunks (`text`,
 
 ```bash
 curl -N -X POST http://localhost:8080/api/chat/stream \
+  -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"question":"Haha you seem fun. What do you do on weekends?"}'
 ```
@@ -209,11 +223,13 @@ How a message is made:
 ```bash
 # Preview (nothing is sent)
 curl -s -X POST http://localhost:8080/api/autopilot/message \
+  -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"to":"+15551234567","context":"Likes hiking and bad puns","send":false}'
 
 # Send it (opener for a new number, next message for an existing conversation)
 curl -s -X POST http://localhost:8080/api/autopilot/message \
+  -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"to":"+15551234567","context":"Likes hiking and bad puns"}'
 ```
@@ -225,7 +241,7 @@ Response: `{ "mode": "opener" | "continue", "message": "...", "to": "+1555123456
 The stored conversation with one match, oldest first (`?limit=`, default 200). `from` is `"match"` or `"me"`.
 
 ```bash
-curl -s "http://localhost:8080/api/autopilot/conversations/%2B15551234567"
+curl -s -H "Authorization: Bearer $API_KEY" "http://localhost:8080/api/autopilot/conversations/%2B15551234567"
 ```
 
 ```json
@@ -260,8 +276,11 @@ openclaw-express/
 ├── README.md
 ├── persona.txt                # system prompt sent with every chat request
 ├── src/
-│   ├── server.js              # Express bootstrap + lifecycle
+│   ├── server.js              # starts the listener (127.0.0.1 by default) + lifecycle
+│   ├── app.js                 # routes + API key check, without the listener (used by tests)
 │   ├── openclawClient.js      # Singleton OpenClaw gateway client
+│   ├── middleware/
+│   │   └── requireApiKey.js   # API key check for /api/*
 │   ├── routes/
 │   │   ├── chat.js            # coach: POST /api/chat/ask + /api/chat/stream
 │   │   └── autopilot.js       # /api/autopilot/message + /conversations/:to
@@ -279,11 +298,14 @@ Inbound WhatsApp auto-replies are handled by the gateway itself, not by this app
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| `gateway: "disconnected"` on `/health` | Gateway container not running, or wrong port | `docker compose ps`; verify `OPENCLAW_GATEWAY_URL` |
-| `401 Unauthorized` from gateway | Token mismatch | Make `OPENCLAW_GATEWAY_TOKEN` identical on both sides |
-| `HTTP 401` from Groq in gateway logs | `GROQ_API_KEY` not visible to daemon | Put it in the gateway's `.env` (loaded by Docker Compose) |
-| `HTTP 429` from Groq | Free-tier TPM cap | Lower concurrency or upgrade Groq plan |
-| `413` / large request errors from Groq | Prompt too large vs TPM | Keep `tools.profile` set to `minimal` on the gateway and keep `persona.txt` short |
-| Reply not received on WhatsApp | Channel not linked, wrong session, blocked by `allowFrom` | `openclaw channels status`; check pairing and policies |
-| Tool calls ignored | Picked a Groq model without function-calling | Use `groq/llama-3.3-70b-versatile` |
-| `answer` empty, `delivered` false, `hint` set | Model sent no text in the stream (or similar) | Check gateway logs, WhatsApp thread, Groq quotas; try `/api/chat/stream` to inspect chunks |
+| `401` from Express | Missing or wrong API key | Send `Authorization: Bearer $API_KEY` (see **Authentication**) |
+| `503` from every `/api` route | `API_KEY` missing or shorter than 24 characters | Set it in `.env` and restart Express |
+| Can't reach Express from another device | Express listens on `127.0.0.1` only (on purpose) | Set `HOST=0.0.0.0` in `.env` if you really need network access |
+| `/health` returns `503` | Gateway container not running, or wrong URL | `docker compose ps`; check `OPENCLAW_GATEWAY_URL` |
+| Gateway closes the connection: token or "pairing required" | Token mismatch, or Express's device needs (re)approval | Make `OPENCLAW_GATEWAY_TOKEN` identical on both sides; `devices list` / `devices approve <requestId>` via `docker compose exec` |
+| `HTTP 401` from Groq in gateway logs | `GROQ_API_KEY` not visible to the gateway | Put it in `openclaw-gateway-docker/.env` and restart the gateway |
+| Slow replies; `429` in gateway logs | Groq free tier: 8,000 tokens/min, 200,000/day for `gpt-oss-120b`; the gateway retries up to 9 times, ~50 s apart | Wait, send fewer requests, keep the workspace files tiny (see CLAUDE.md "Token budget"), or add a fallback / upgrade Groq |
+| `413` or "Context overflow: prompt too large" | One request is over 8,000 tokens; nothing is sent | Keep `~/.openclaw/workspace/*.md` to a line or two, `tools.profile` on `minimal`, and run `npm run whatsapp:sync` (history limit 20) |
+| `403` from `/api/autopilot/*` | Number not in `AUTOPILOT_NUMBERS`, or Express not restarted after `match:add` | `npm run match:add -- +<number>`, then restart Express |
+| A match gets no reply on WhatsApp | Number not in the gateway allowlist, or WhatsApp not linked | `npm run whatsapp:sync`; `docker compose exec openclaw-gateway node dist/index.js channels status` |
+| Reply contains planning text ("I need to…") | `gpt-oss-120b` leaked its reasoning | Express answers are sanitized; gateway replies to matches are not yet. Keep `thinkingDefault: "low"` |

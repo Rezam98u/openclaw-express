@@ -1,28 +1,17 @@
-import express from "express";
-import { chatRouter } from "./routes/chat.js";
-import { autopilotRouter } from "./routes/autopilot.js";
-import { getClient, disconnectClient } from "./openclawClient.js";
+import { app } from "./app.js";
+import { disconnectClient, getClient } from "./openclawClient.js";
 import { loadPersona } from "./utils/persona.js";
+import { MIN_API_KEY_LENGTH } from "./middleware/requireApiKey.js";
 
 const port = Number(process.env.PORT) || 8080;
-
-const app = express();
-app.use(express.json({ limit: "1mb" }));
-
-app.get("/health", async (_req, res) => {
-  try {
-    const client = await getClient();
-    res.json({ ok: true, gateway: client.isConnected ? "connected" : "disconnected" });
-  } catch (err) {
-    res.status(503).json({ ok: false, error: err.message });
-  }
-});
-
-app.use("/api/chat", chatRouter);
-app.use("/api/autopilot", autopilotRouter);
+// Loopback by default: only this Mac can reach the API. Set HOST=0.0.0.0 to expose it on the network.
+const host = process.env.HOST?.trim() || "127.0.0.1";
 
 const start = async () => {
   loadPersona();
+  if ((process.env.API_KEY?.trim() ?? "").length < MIN_API_KEY_LENGTH) {
+    console.warn(`[startup] API_KEY is missing or shorter than ${MIN_API_KEY_LENGTH} characters: every /api request will get 503.`);
+  }
   try {
     await getClient();
     console.log("[startup] Connected to OpenClaw gateway.");
@@ -31,8 +20,8 @@ const start = async () => {
     console.warn("[startup] Server will start anyway; requests will retry on demand.");
   }
 
-  app.listen(port, () => {
-    console.log(`[startup] Express listening on http://localhost:${port}`);
+  app.listen(port, host, () => {
+    console.log(`[startup] Express listening on http://${host}:${port}`);
   });
 };
 
