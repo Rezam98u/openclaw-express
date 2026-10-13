@@ -268,7 +268,7 @@ This sets `session.dmScope: "per-channel-peer"` (one conversation per match), `s
 
 ## Persona
 
-The persona has two files:
+The persona has two files. Both are personal and **not in git** (see `.gitignore`), so create them yourself on a new machine:
 
 | File | What goes in it | Sent to the model |
 | --- | --- | --- |

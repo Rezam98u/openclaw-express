@@ -9,7 +9,8 @@ import {
 } from "../src/utils/whatsappSession.js";
 import { collectAgentTextStream } from "../src/utils/agentStreamCollect.js";
 import { formatTranscript, toConversation } from "../src/utils/conversation.js";
-import { PERSONA_MAX_CHARS, buildPersona, composePersona } from "../src/utils/persona.js";
+import fs from "fs";
+import { PERSONA_MAX_CHARS, buildPersona, composePersona, getPersonaPath } from "../src/utils/persona.js";
 
 test("sanitizeChatAnswer: non-strings and blanks", () => {
   assert.equal(sanitizeChatAnswer(undefined), "");
@@ -113,7 +114,8 @@ test("composePersona: picks a random subset, never more than the budget", () => 
   assert.notEqual(a, b, "different requests get different examples");
 });
 
-test("persona.txt + persona-examples.txt stay within the per-request budget", () => {
+// persona.txt is personal and not in git, so a fresh clone skips this check.
+test("persona.txt + persona-examples.txt stay within the per-request budget", { skip: !fs.existsSync(getPersonaPath()) && "persona.txt not present" }, () => {
   const persona = buildPersona();
   assert.ok(persona.length > 0, "persona.txt must not be empty");
   assert.ok(persona.length <= PERSONA_MAX_CHARS, `persona sent to the model is ${persona.length} chars`);
