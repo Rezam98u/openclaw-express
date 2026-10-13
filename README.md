@@ -206,7 +206,7 @@ Conversations are never wiped automatically. The gateway's archive window is set
 How a message is made:
 
 1. Reads the match's stored history (unless `restart`).
-2. Drafts the message in a throwaway session (persona from `persona.txt`, no delivery), then deletes that session.
+2. Drafts the message in a throwaway session (persona: `persona.txt` plus a random set of examples from `persona-examples.txt`, see **Persona**), with no delivery, then deletes that session.
 3. Cleans it with the same sanitizer as `/api/chat/ask`, so leaked planning text never reaches the match.
 4. Sends **exactly that text** through the gateway's `send` RPC and mirrors it into the match's conversation, so the gateway's later replies know what you said.
 
@@ -257,7 +257,7 @@ npm run match:add -- +15551234567   # adds it to AUTOPILOT_NUMBERS in .env and u
 
 Then restart Express (it reads `.env` at startup). The first `POST /api/autopilot/message` to that number sends an opener.
 
-**Gateway setup (`match:add` runs this for you; run it yourself after editing `persona.txt`):**
+**Gateway setup (`match:add` runs this for you; run it yourself after editing `persona.txt` or `persona-examples.txt`):**
 
 ```bash
 npm run whatsapp:sync:dry   # validate
@@ -265,6 +265,22 @@ npm run whatsapp:sync       # apply to the running gateway
 ```
 
 This sets `session.dmScope: "per-channel-peer"` (one conversation per match), `session.maintenance.pruneAfter: "3650d"` (conversations aren't archived after the default 30 quiet days), `channels.whatsapp.dmPolicy: "allowlist"` with `allowFrom` = `AUTOPILOT_NUMBERS` (only listed matches are answered; nobody gets pairing codes), `channels.whatsapp.direct["*"].systemPrompt` = `persona.txt`, `channels.whatsapp.dmHistoryLimit: 20` (only the last 20 turns go to the model; the full conversation stays stored), and `agents.defaults.thinkingDefault: "low"` (less hidden reasoning). The last two keep each request well inside Groq's free tier of 8,000 tokens per minute.
+
+## Persona
+
+The persona has two files:
+
+| File | What goes in it | Sent to the model |
+| --- | --- | --- |
+| `persona.txt` | The rules: voice, length, what never to say | Always, in full |
+| `persona-examples.txt` | Example messages, **one per line**. Add to it as often as you like | A **random set that fits the budget**, different on every request |
+
+Each request sends at most **4,400 characters** in total (`PERSONA_MAX_CHARS` in `src/utils/persona.js`): the full rules, then examples in random order until the next one wouldn't fit. The cost per reply stays the same however large the example bank grows. Keep `persona.txt` short (about 1,000 characters today) so there's room for examples; `npm test` fails if the rules leave no room.
+
+After editing either file:
+
+1. **Restart Express** (`npm run dev`): it reads both files once at startup.
+2. Run **`npm run whatsapp:sync`**: the gateway's own replies to matches use a fixed prompt built the same way. Rerunning the sync also rotates which examples the gateway gets.
 
 ## Project layout
 
@@ -274,7 +290,8 @@ openclaw-express/
 ├── .env.example
 ├── .gitignore
 ├── README.md
-├── persona.txt                # system prompt sent with every chat request
+├── persona.txt                # core persona rules, sent in full with every request
+├── persona-examples.txt       # example bank, one per line; grows freely, a random subset is sent
 ├── src/
 │   ├── server.js              # starts the listener (127.0.0.1 by default) + lifecycle
 │   ├── app.js                 # routes + API key check, without the listener (used by tests)
@@ -286,7 +303,7 @@ openclaw-express/
 │   │   └── autopilot.js       # /api/autopilot/message + /conversations/:to
 │   └── utils/
 │       ├── agentStreamCollect.js # consume agent stream → answer + streamError
-│       ├── persona.js         # load + cache persona.txt
+│       ├── persona.js         # core + random examples within 4,400 chars per request
 │       ├── sanitizeChatAnswer.js # strip leaked planning / tags from answers
 │       └── whatsappSession.js # E.164 + sessionKey helpers
 └── test/                      # node:test suite (npm test), runs offline

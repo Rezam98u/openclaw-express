@@ -9,6 +9,7 @@ import {
 } from "../src/utils/whatsappSession.js";
 import { collectAgentTextStream } from "../src/utils/agentStreamCollect.js";
 import { formatTranscript, toConversation } from "../src/utils/conversation.js";
+import { PERSONA_MAX_CHARS, buildPersona, composePersona } from "../src/utils/persona.js";
 
 test("sanitizeChatAnswer: non-strings and blanks", () => {
   assert.equal(sanitizeChatAnswer(undefined), "");
@@ -79,4 +80,42 @@ test("conversation: maps gateway history to match/me turns and a transcript", ()
   ]);
   assert.equal(formatTranscript(convo), "Me: Hiking or puns first?\nThem: Puns, obviously\nMe: Bold choice.");
   assert.deepEqual(toConversation(undefined), []);
+});
+
+test("composePersona: core always in full, examples only while they fit the budget", () => {
+  const core = "CORE RULES";
+  const examples = ["short one", "a much longer example line here", "tiny"];
+  const inOrder = () => 0.999; // keeps the shuffle in its original order
+
+  // Room for everything
+  let persona = composePersona(core, examples, { maxChars: 1000, random: inOrder });
+  assert.equal(persona, "CORE RULES\n\nExamples (tone only):\nshort one\na much longer example line here\ntiny");
+
+  // The long example doesn't fit, but the shorter one after it still does
+  persona = composePersona(core, examples, { maxChars: 50, random: inOrder });
+  assert.equal(persona, "CORE RULES\n\nExamples (tone only):\nshort one\ntiny");
+  assert.ok(persona.length <= 50);
+
+  // No example fits: core alone, without a dangling header
+  assert.equal(composePersona(core, examples, { maxChars: 20, random: inOrder }), core);
+
+  // No examples, or no core
+  assert.equal(composePersona(core, [], { maxChars: 1000 }), core);
+  assert.equal(composePersona("", examples, { maxChars: 1000 }), "");
+});
+
+test("composePersona: picks a random subset, never more than the budget", () => {
+  const examples = Array.from({ length: 500 }, (_, i) => `example number ${i} with some words`);
+  const a = composePersona("CORE", examples, { maxChars: 4400 });
+  const b = composePersona("CORE", examples, { maxChars: 4400 });
+  assert.ok(a.length <= 4400 && b.length <= 4400);
+  assert.ok(a.length > 4000, "fills most of the budget");
+  assert.notEqual(a, b, "different requests get different examples");
+});
+
+test("persona.txt + persona-examples.txt stay within the per-request budget", () => {
+  const persona = buildPersona();
+  assert.ok(persona.length > 0, "persona.txt must not be empty");
+  assert.ok(persona.length <= PERSONA_MAX_CHARS, `persona sent to the model is ${persona.length} chars`);
+  assert.match(persona, /Examples \(tone only\):\n\S/, "persona.txt must leave room for at least one example");
 });

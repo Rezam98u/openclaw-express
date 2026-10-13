@@ -1,5 +1,7 @@
-// Prints the gateway config patch for WhatsApp autopilot, built from persona.txt and
-// AUTOPILOT_NUMBERS, so the gateway's copy of the persona never drifts by hand.
+// Prints the gateway config patch for WhatsApp autopilot, built from persona.txt (+ examples
+// from persona-examples.txt, within the same 4,400-character budget Express uses) and
+// AUTOPILOT_NUMBERS, so the gateway's copy of the persona never drifts by hand. The gateway
+// prompt is fixed between syncs: rerun the sync to rotate which examples it gets.
 // Apply with `npm run whatsapp:sync` (or `npm run whatsapp:sync:dry` to validate only).
 //
 // What it sets in ~/.openclaw/openclaw.json:
@@ -18,11 +20,13 @@
 //
 // The last two keep requests inside Groq's free tier (8,000 tokens per minute, and a single
 // request may not exceed that either).
-import fs from "fs";
-import { getPersonaPath } from "../src/utils/persona.js";
+import { buildPersona, getPersonaPath } from "../src/utils/persona.js";
 import { parseE164List } from "../src/utils/whatsappSession.js";
 
-const persona = fs.readFileSync(getPersonaPath(), "utf8").trim();
+// stdout carries the patch to `config patch --stdin`; send log lines to stderr instead.
+console.log = console.error;
+
+const persona = buildPersona();
 const numbers = parseE164List(process.env.AUTOPILOT_NUMBERS);
 
 if (!persona) {

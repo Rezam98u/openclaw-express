@@ -1,6 +1,6 @@
 import { app } from "./app.js";
 import { disconnectClient, getClient } from "./openclawClient.js";
-import { loadPersona } from "./utils/persona.js";
+import { buildPersona } from "./utils/persona.js";
 import { MIN_API_KEY_LENGTH } from "./middleware/requireApiKey.js";
 
 const port = Number(process.env.PORT) || 8080;
@@ -8,7 +8,7 @@ const port = Number(process.env.PORT) || 8080;
 const host = process.env.HOST?.trim() || "127.0.0.1";
 
 const start = async () => {
-  loadPersona();
+  buildPersona(); // reads the persona files now, so problems are logged at startup
   if ((process.env.API_KEY?.trim() ?? "").length < MIN_API_KEY_LENGTH) {
     console.warn(`[startup] API_KEY is missing or shorter than ${MIN_API_KEY_LENGTH} characters: every /api request will get 503.`);
   }

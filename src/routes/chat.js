@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import { Router } from "express";
 import { getClient } from "../openclawClient.js";
-import { loadPersona } from "../utils/persona.js";
+import { buildPersona } from "../utils/persona.js";
 import { sanitizeChatAnswer } from "../utils/sanitizeChatAnswer.js";
 import { collectAgentTextStream } from "../utils/agentStreamCollect.js";
 
@@ -21,7 +21,7 @@ const prepare = (req, res) => {
     return null;
   }
   const agentId = providedAgentId?.trim() || "main";
-  const persona = loadPersona();
+  const persona = buildPersona();
   return {
     question,
     sessionKey: `agent:${agentId}:coach:${crypto.randomUUID()}`,
@@ -30,7 +30,7 @@ const prepare = (req, res) => {
 };
 
 const discard = (client, sessionKey) =>
-  client?.sessions.delete(sessionKey, { deleteTranscript: true }).catch(() => {});
+  client?.sessions.delete(sessionKey, { deleteTranscript: true }).catch(() => { });
 
 chatRouter.post("/ask", async (req, res) => {
   const run = prepare(req, res);

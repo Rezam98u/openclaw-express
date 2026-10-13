@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import { Router } from "express";
 import { getClient } from "../openclawClient.js";
-import { loadPersona } from "../utils/persona.js";
+import { buildPersona } from "../utils/persona.js";
 import { sanitizeChatAnswer } from "../utils/sanitizeChatAnswer.js";
 import { collectAgentTextStream } from "../utils/agentStreamCollect.js";
 import { formatTranscript, toConversation } from "../utils/conversation.js";
@@ -56,7 +56,7 @@ autopilotRouter.post("/message", async (req, res) => {
   const agentId = providedAgentId?.trim() || "main";
   const sessionKey = buildWhatsAppDmSessionKey(agentId, recipient);
   const draftKey = `agent:${agentId}:autopilot:draft:${crypto.randomUUID()}`;
-  const persona = loadPersona();
+  const persona = buildPersona();
 
   let client;
   try {
