@@ -1,24 +1,56 @@
-// The gateway's model, as it is actually configured (2026-10-12). Applying it changes
-// nothing on the current gateway; use it to restore the model after experiments.
+// The gateway's models, as they are actually configured (2026-11-11). Applying it changes
+// nothing on the current gateway; use it to restore the models after experiments.
 // Run from openclaw-gateway-docker:
 //   docker compose exec -T openclaw-gateway node dist/index.js config patch --stdin --dry-run < ../openclaw-express/openclaw-model-pin.json5
 //   docker compose exec -T openclaw-gateway node dist/index.js config patch --stdin < ../openclaw-express/openclaw-model-pin.json5
 //
-// - Groq gpt-oss-120b is the only model. Llama 3.3 was retired from Groq.
-// - No fallbacks: when Groq returns 429, the gateway retries the same model (up to 9 times,
-//   ~50 s apart). Adding a fallback is an open decision (local Ollama, Cerebras, or a paid provider).
-// - gpt-oss-120b is a reasoning model. `npm run whatsapp:sync` sets
-//   agents.defaults.thinkingDefault = "low" to keep its hidden reasoning short, and
-//   src/utils/sanitizeChatAnswer.js strips reasoning that leaks into Express answers.
-// - Free tier: 8,000 tokens per minute and 200,000 per day for this model (per Groq
+// - Primary: Groq gpt-oss-120b. Llama 3.3 was retired from Groq.
+// - Fallback: gpt-oss:20b in Ollama on this Mac (`ollama pull gpt-oss:20b`; the Ollama app
+//   must be running). The container reaches it at host.docker.internal:11434, the native
+//   Ollama API (no /v1). "ollama-local" is OpenClaw's marker for a keyless local host, not a secret.
+// - When fallback kicks in: a Groq 429 is first retried on Groq (up to 10 attempts), unless
+//   Groq asks to wait longer than 60 s or the daily limit (TPD) is used up; then the gateway
+//   answers with Ollama at once. While Groq is in cooldown (30 s, 1 min, then 5 min),
+//   new replies go to Ollama.
+// - Ollama: contextTokens 16384 (also sent as num_ctx) holds the ~2,900-token prompt plus
+//   20 history messages; keep_alive 30m keeps the 13 GB model loaded between replies;
+//   timeoutSeconds 300 covers a cold load.
+// - gpt-oss is a reasoning model. `npm run whatsapp:sync` sets
+//   agents.defaults.thinkingDefault = "low" to keep its hidden reasoning short (both models),
+//   and src/utils/sanitizeChatAnswer.js strips reasoning that leaks into Express answers.
+// - Groq free tier: 8,000 tokens per minute and 200,000 per day for gpt-oss-120b (per Groq
 //   organization). One reply costs ~2,900 input tokens; see CLAUDE.md "Token budget".
 
 {
+  models: {
+    providers: {
+      ollama: {
+        baseUrl: "http://host.docker.internal:11434",
+        api: "ollama",
+        apiKey: "ollama-local",
+        timeoutSeconds: 300,
+        models: [
+          {
+            id: "gpt-oss:20b",
+            name: "gpt-oss:20b",
+            reasoning: true,
+            contextWindow: 131072,
+            contextTokens: 16384,
+            params: { keep_alive: "30m" },
+          },
+        ],
+      },
+    },
+  },
   agents: {
     defaults: {
+      models: {
+        "groq/openai/gpt-oss-120b": {},
+        "ollama/gpt-oss:20b": {},
+      },
       model: {
         primary: "groq/openai/gpt-oss-120b",
-        fallbacks: [],
+        fallbacks: ["ollama/gpt-oss:20b"],
       },
     },
   },

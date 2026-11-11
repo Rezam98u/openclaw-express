@@ -20,17 +20,26 @@ Or just send /new or /reset in the chat — that clears session history without 
  MODEL (gateway)
 ═══════════════════════════════════════════════════════
 
-# What the gateway uses today: groq/openai/gpt-oss-120b, the only model, no fallbacks.
-# (Llama 3.3 was retired from Groq. gpt-oss-120b is a reasoning model; `npm run whatsapp:sync`
-# sets agents.defaults.thinkingDefault = "low" to keep its hidden reasoning short.)
+# What the gateway uses today: groq/openai/gpt-oss-120b, with ollama/gpt-oss:20b
+# (Ollama on this Mac, reached at host.docker.internal:11434) as the only fallback.
+# (Llama 3.3 was retired from Groq. Both are gpt-oss reasoning models; `npm run whatsapp:sync`
+# sets agents.defaults.thinkingDefault = "low" to keep their hidden reasoning short.)
 # Groq free tier for it: 8,000 tokens per minute, 200,000 per day; one reply ~2,900 tokens.
-# On a 429 the gateway retries the same model up to 9 times, ~50 s apart (slow replies).
+# On a 429 the gateway retries Groq up to 10 times, then answers with Ollama. It goes to Ollama
+# at once when Groq asks to wait > 60 s or the daily limit is used up, and while Groq cools down.
 
 # Show the live setting:
 docker compose exec openclaw-gateway node dist/index.js config get agents.defaults.model
 
-# List Groq models the gateway knows:
+# List Groq / Ollama models the gateway knows:
 docker compose exec openclaw-gateway node dist/index.js models list --provider groq
+docker compose exec openclaw-gateway node dist/index.js models list --provider ollama
+
+# Ollama on the Mac (must be running for the fallback):
+curl localhost:11434/api/version
+ollama list                 # gpt-oss:20b must be listed
+ollama pull gpt-oss:20b     # if it isn't
+ollama ps                   # is the model loaded right now?
 
 # Restore exactly this setting after experiments (no restart needed):
 docker compose exec -T openclaw-gateway node dist/index.js config patch --stdin --dry-run < ../openclaw-express/openclaw-model-pin.json5
@@ -109,7 +118,7 @@ docker compose restart openclaw-gateway
 ═══════════════════════════════════════════════════════
 
 # Reality: openclaw-gateway-docker/.env may hold a GEMINI_API_KEY, but no model uses Gemini.
-# There is no fallback chain (no Groq -> DeepSeek -> Gemini); Groq gpt-oss-120b is the only model.
+# The only fallback is local Ollama (Groq -> Ollama gpt-oss:20b); no model uses Gemini.
 #
 # Before using Gemini for match chats, note Google's terms for the FREE (unpaid) API:
 #   - users in the EEA, Switzerland or the UK may only be served with Paid Services,
@@ -120,5 +129,5 @@ docker compose restart openclaw-gateway
 #   1. Key: https://aistudio.google.com/apikey -> openclaw-gateway-docker/.env: GEMINI_API_KEY=...
 #   2. docker compose restart openclaw-gateway   (picks up the new env var)
 #   3. docker compose exec openclaw-gateway node dist/index.js models list --provider google
-#   4. docker compose exec openclaw-gateway node dist/index.js config set agents.defaults.model.fallbacks '["google/<model-from-step-3>"]' --strict-json
+#   4. docker compose exec openclaw-gateway node dist/index.js config set agents.defaults.model.fallbacks '["ollama/gpt-oss:20b","google/<model-from-step-3>"]' --strict-json
 #      then update ../openclaw-express/openclaw-model-pin.json5 to match.

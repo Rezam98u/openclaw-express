@@ -17,10 +17,20 @@
 //                                          full conversation stays stored
 //   agents.defaults.thinkingDefault = "low"
 //                                          less hidden reasoning: fewer tokens, faster, fewer leaks
+//   agents.defaults.heartbeat = { every: "0m", target: "none" }
+//                                          no background heartbeat turns: by default one runs every
+//                                          30 min and messages the owner (the test number), which
+//                                          put a "heartbeat alert" and unprompted texts into a match
+//                                          chat and used up Groq tokens
+//   skills.workshop.autonomous.mode = "off"
+//                                          no weekly "Skill collection review" job (model calls)
+//   plugins.entries["memory-core"].config.dreaming.enabled = false
+//                                          no nightly "Memory Dreaming" job (model calls)
 //
-// The last two keep requests inside Groq's free tier (8,000 tokens per minute, and a single
-// request may not exceed that either).
+// dmHistoryLimit, thinkingDefault and the background jobs being off keep requests inside Groq's free tier
+// (8,000 tokens per minute, and a single request may not exceed that either).
 import { buildPersona, getPersonaPath } from "../src/utils/persona.js";
+import { buildWhatsappAutopilotPatch } from "../src/utils/whatsappAutopilotPatch.js";
 import { parseE164List } from "../src/utils/whatsappSession.js";
 
 // stdout carries the patch to `config patch --stdin`; send log lines to stderr instead.
@@ -38,17 +48,6 @@ if (!numbers.length) {
   process.exit(1);
 }
 
-const patch = {
-  session: { dmScope: "per-channel-peer", maintenance: { pruneAfter: "3650d" } },
-  agents: { defaults: { thinkingDefault: "low" } },
-  channels: {
-    whatsapp: {
-      dmPolicy: "allowlist",
-      allowFrom: numbers,
-      direct: { "*": { systemPrompt: persona } },
-      dmHistoryLimit: 20,
-    },
-  },
-};
+const patch = buildWhatsappAutopilotPatch(persona, numbers);
 
 process.stdout.write(JSON.stringify(patch, null, 2) + "\n");

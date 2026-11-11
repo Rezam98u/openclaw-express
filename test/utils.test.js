@@ -9,6 +9,7 @@ import {
 } from "../src/utils/whatsappSession.js";
 import { collectAgentTextStream } from "../src/utils/agentStreamCollect.js";
 import { formatTranscript, toConversation } from "../src/utils/conversation.js";
+import { buildWhatsappAutopilotPatch } from "../src/utils/whatsappAutopilotPatch.js";
 import fs from "fs";
 import { PERSONA_MAX_CHARS, buildPersona, composePersona, getPersonaPath } from "../src/utils/persona.js";
 
@@ -120,4 +121,14 @@ test("persona.txt + persona-examples.txt stay within the per-request budget", { 
   assert.ok(persona.length > 0, "persona.txt must not be empty");
   assert.ok(persona.length <= PERSONA_MAX_CHARS, `persona sent to the model is ${persona.length} chars`);
   assert.match(persona, /Examples \(tone only\):\n\S/, "persona.txt must leave room for at least one example");
+});
+
+test("whatsapp:sync patch: no background model jobs, only listed numbers are answered", () => {
+  const patch = buildWhatsappAutopilotPatch("PERSONA", ["+491511234567"]);
+  assert.deepEqual(patch.agents.defaults.heartbeat, { every: "0m", target: "none" });
+  assert.equal(patch.skills.workshop.autonomous.mode, "off");
+  assert.equal(patch.plugins.entries["memory-core"].config.dreaming.enabled, false);
+  assert.equal(patch.channels.whatsapp.dmPolicy, "allowlist");
+  assert.deepEqual(patch.channels.whatsapp.allowFrom, ["+491511234567"]);
+  assert.deepEqual(patch.channels.whatsapp.direct, { "*": { systemPrompt: "PERSONA" } });
 });
