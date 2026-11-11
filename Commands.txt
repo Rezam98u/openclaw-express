@@ -108,6 +108,21 @@ echo "Saved to request-log.txt"
 docker compose logs --tail 50 openclaw-gateway       # add -f to follow
 
 ═══════════════════════════════════════════════════════
+ GATEWAY PLUGIN: plain-punctuation (long dashes in outgoing messages -> commas)
+═══════════════════════════════════════════════════════
+
+# Code: ../openclaw-express/gateway-plugins/plain-punctuation (mounted read-only by docker-compose.yml).
+# Install once:
+docker compose exec openclaw-gateway node dist/index.js plugins install --link /home/node/openclaw-plugins/plain-punctuation --force
+docker compose exec openclaw-gateway node dist/index.js plugins enable plain-punctuation
+
+# Check (expect "status": "loaded" and message_sending under typedHooks):
+docker compose exec openclaw-gateway node dist/index.js plugins inspect plain-punctuation --runtime --json
+
+# After editing its code:
+docker compose exec openclaw-gateway node dist/index.js plugins reload plain-punctuation
+
+═══════════════════════════════════════════════════════
  RESTORE CONFIG FROM BACKUP
 ═══════════════════════════════════════════════════════
 

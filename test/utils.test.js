@@ -10,6 +10,7 @@ import {
 import { collectAgentTextStream } from "../src/utils/agentStreamCollect.js";
 import { formatTranscript, toConversation } from "../src/utils/conversation.js";
 import { buildWhatsappAutopilotPatch } from "../src/utils/whatsappAutopilotPatch.js";
+import { cleanOutgoingMessage } from "../gateway-plugins/plain-punctuation/plainPunctuation.js";
 import fs from "fs";
 import { PERSONA_MAX_CHARS, buildPersona, composePersona, getPersonaPath } from "../src/utils/persona.js";
 
@@ -131,4 +132,20 @@ test("whatsapp:sync patch: no background model jobs, only listed numbers are ans
   assert.equal(patch.channels.whatsapp.dmPolicy, "allowlist");
   assert.deepEqual(patch.channels.whatsapp.allowFrom, ["+491511234567"]);
   assert.deepEqual(patch.channels.whatsapp.direct, { "*": { systemPrompt: "PERSONA" } });
+});
+
+test("sanitizeChatAnswer: long dashes and semicolons become commas, so texts read human", () => {
+  assert.equal(
+    sanitizeChatAnswer("Sounds rough, hope you get a break soon—what’s your go‑to snack?"),
+    "Sounds rough, hope you get a break soon, what’s your go-to snack?"
+  );
+  assert.equal(sanitizeChatAnswer("Nice – sounds intense; any tips?"), "Nice, sounds intense, any tips?");
+  assert.equal(sanitizeChatAnswer("Well—"), "Well");
+  assert.equal(sanitizeChatAnswer("a well-known spot"), "a well-known spot");
+});
+
+test("gateway plain-punctuation plugin: rewrites outgoing dashes, leaves clean texts alone", () => {
+  assert.deepEqual(cleanOutgoingMessage({ content: "Nice—any recommendations?" }), { content: "Nice, any recommendations?" });
+  assert.equal(cleanOutgoingMessage({ content: "Hey, how's your day going?" }), undefined);
+  assert.equal(cleanOutgoingMessage({}), undefined);
 });

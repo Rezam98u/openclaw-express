@@ -85,7 +85,7 @@ The gateway's config file is `~/.openclaw/openclaw.json` on your Mac (bind-mount
 
 - **Model:** `groq/openai/gpt-oss-120b`. Llama 3.3 was retired from Groq.
 - **Fallback:** `ollama/gpt-oss:20b`, run by Ollama on this Mac (`ollama pull gpt-oss:20b`, and keep the Ollama app running). The container reaches it at `http://host.docker.internal:11434` (the native API, no `/v1`). On a Groq 429 the gateway first retries Groq (up to 10 attempts). It switches to Ollama right away when Groq asks to wait more than 60 seconds or the daily limit is used up, and it keeps using Ollama while Groq is in cooldown (30 s, then 1 min, then 5 min). The 20b model is weaker than 120b: in a side-by-side test it broke the "one question" rule more often, so replies sent by the fallback may be rougher. Each one takes about 2 to 5 seconds, plus about 7 seconds when the model has to be loaded first (`keep_alive: "30m"` keeps it loaded between replies). If Ollama isn't running, fallback replies fail and nothing is sent.
-- **Reasoning:** both models are gpt-oss reasoning models. `npm run whatsapp:sync` sets `agents.defaults.thinkingDefault: "low"` to keep its hidden reasoning short, and `sanitizeChatAnswer.js` strips reasoning that leaks into Express answers. Replies the gateway sends to matches on its own are not sanitized.
+- **Reasoning:** both models are gpt-oss reasoning models. `npm run whatsapp:sync` sets `agents.defaults.thinkingDefault: "low"` to keep its hidden reasoning short, and `sanitizeChatAnswer.js` strips reasoning that leaks into Express answers. Replies the gateway sends to matches on its own are not sanitized, except for long dashes (see "Persona").
 - **Groq free tier for this model:** 8,000 tokens per minute and 200,000 per day, shared across your whole Groq organization. A single request may not exceed 8,000 tokens either. One reply costs about 2,900 input tokens, so about 2 replies per minute and about 65 per day fit.
 
 Check the live setting:
@@ -275,7 +275,19 @@ The persona has two files. Both are personal and **not in git** (see `.gitignore
 | `persona.txt` | The rules: voice, length, what never to say | Always, in full |
 | `persona-examples.txt` | Example messages, **one per line**. Add to it as often as you like | A **random set that fits the budget**, different on every request |
 
-Each request sends at most **4,400 characters** in total (`PERSONA_MAX_CHARS` in `src/utils/persona.js`): the full rules, then examples in random order until the next one wouldn't fit. The cost per reply stays the same however large the example bank grows. Keep `persona.txt` short (about 1,000 characters today) so there's room for examples; `npm test` fails if the rules leave no room.
+Each request sends at most **4,400 characters** in total (`PERSONA_MAX_CHARS` in `src/utils/persona.js`): the full rules, then examples in random order until the next one wouldn't fit. The cost per reply stays the same however large the example bank grows. Keep `persona.txt` short (about 1,500 characters today) so there's room for examples; `npm test` fails if the rules leave no room.
+
+**Long dashes.** gpt-oss writes long dashes (—, –) and semicolons even when the persona forbids them, and they make a text read as AI-written. Both paths turn them into commas with the same function, `gateway-plugins/plain-punctuation/plainPunctuation.js`:
+
+- Express runs it in `sanitizeChatAnswer.js` (coach answers and autopilot messages it sends).
+- The gateway runs it through our own plugin, `gateway-plugins/plain-punctuation`, on its `message_sending` hook, so the replies it sends to matches on its own are cleaned too. `openclaw-gateway-docker/docker-compose.yml` mounts the folder read-only at `/home/node/openclaw-plugins/plain-punctuation`. Install it once (from `openclaw-gateway-docker`):
+
+  ```bash
+  docker compose exec openclaw-gateway node dist/index.js plugins install --link /home/node/openclaw-plugins/plain-punctuation --force
+  docker compose exec openclaw-gateway node dist/index.js plugins enable plain-punctuation
+  ```
+
+  After changing the plugin's code: `docker compose exec openclaw-gateway node dist/index.js plugins reload plain-punctuation`. Check it with `plugins inspect plain-punctuation --runtime --json` (expect `"status": "loaded"` and `message_sending` under `typedHooks`).
 
 After editing either file:
 
@@ -304,8 +316,11 @@ openclaw-express/
 │   └── utils/
 │       ├── agentStreamCollect.js # consume agent stream → answer + streamError
 │       ├── persona.js         # core + random examples within 4,400 chars per request
-│       ├── sanitizeChatAnswer.js # strip leaked planning / tags from answers
+│       ├── sanitizeChatAnswer.js # strip leaked planning / tags, plain punctuation
+│       ├── whatsappAutopilotPatch.js # gateway config patch for npm run whatsapp:sync
 │       └── whatsappSession.js # E.164 + sessionKey helpers
+├── gateway-plugins/
+│   └── plain-punctuation/     # gateway plugin: long dashes in outgoing messages → commas
 └── test/                      # node:test suite (npm test), runs offline
 ```
 

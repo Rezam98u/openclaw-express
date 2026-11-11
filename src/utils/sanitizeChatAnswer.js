@@ -1,3 +1,5 @@
+import { plainPunctuation } from "../../gateway-plugins/plain-punctuation/plainPunctuation.js";
+
 /**
  * Best-effort cleanup when the gateway model leaks planning, tags, or workspace refs.
  */
@@ -44,5 +46,5 @@ export function sanitizeChatAnswer(raw) {
     }
   }
 
-  return s.trim();
+  return plainPunctuation(s.trim());
 }
